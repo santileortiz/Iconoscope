@@ -1,0 +1,8 @@
+*.swp
+perf.data*
+bin
+gmon.out
+tags
+*__pycache__*
+*.pyc
+mkpy/cache
