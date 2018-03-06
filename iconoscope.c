@@ -122,7 +122,7 @@ bool is_end_of_section (char *c)
 // Returns the number of times file exists inside dir.
 // NOTE: The value can be >1 because file MUST not contain any extension so
 // there may be repetitions.
-int file_lookup (char *dir, char *file)
+int file_lookup_no_ext (char *dir, char *file)
 {
     struct stat st;
     if (stat(dir, &st) == -1 && errno == ENOENT) {
@@ -136,12 +136,109 @@ int file_lookup (char *dir, char *file)
     DIR *d = opendir (dir);
     struct dirent entry_info, *info_res;
     while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
-        int cmp = strncmp (file, entry_info.d_name, MIN (strlen(file), strlen(entry_info.d_name)));
+        uint32_t file_len = strlen(file);
+        uint32_t entry_len = strlen(entry_info.d_name);
+        int cmp = strncmp (file, entry_info.d_name, MIN (file_len, entry_len));
         if (cmp == 0) {
-            res++;
+            if (file_len == entry_len ||
+                (file_len < entry_len && entry_info.d_name[file_len] == '.')) {
+                res++;
+            }
         }
     }
+    closedir (d);
     return res;
+}
+
+bool file_lookup (char *dir, char *file)
+{
+    struct stat st;
+    if (stat(dir, &st) == -1 && errno == ENOENT) {
+        //printf ("No directory named: %s\n", dir);
+        return 0;
+    }
+
+    bool res = false;
+    DIR *d = opendir (dir);
+    struct dirent entry_info, *info_res;
+    while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
+        uint32_t file_len = strlen(file);
+        uint32_t entry_len = strlen(entry_info.d_name);
+        int cmp = strncmp (file, entry_info.d_name, MIN (file_len, entry_len));
+        if (cmp == 0) {
+            if (file_len == entry_len) {
+                res = true;
+                break;
+            }
+        }
+    }
+    closedir (d);
+    return res;
+}
+
+void print_theme_name (char *path)
+{
+    char *theme_index = full_file_read (NULL, path);
+    char *c = theme_index;
+
+    char *section_name;
+    uint32_t section_name_len;
+    c = seek_next_section (c, &section_name, &section_name_len);
+
+    char *name_str = "Name";
+    while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
+        char *key, *value;
+        uint32_t key_len, value_len;
+        c = seek_next_key_value (c, &key, &key_len, &value, &value_len);
+        if (strlen (name_str) == key_len && strncmp (name_str, key, key_len) == 0) {
+            printf ("%.*s", value_len, value);
+        }
+
+    }
+    free (theme_index);
+}
+
+void print_icon_themes (char *path_c)
+{
+    string_t path = str_new (path_c);
+    if (str_last(&path) != '/') {
+        str_cat_c (&path, "/");
+    }
+    uint32_t path_len = str_len (&path);
+
+    struct stat st;
+    if (stat(path_c, &st) == -1 && errno == ENOENT) {
+        // NOTE: Current search paths may contain non existent directories.
+        printf ("Search path does not exist.\n");
+        return;
+    }
+
+    bool theme_found = false;
+    DIR *d = opendir (path_c);
+    struct dirent entry_info, *info_res;
+    while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
+        if (entry_info.d_name[0] != '.') {
+            string_t theme_dir = str_new (entry_info.d_name);
+            str_put (&path, path_len, &theme_dir);
+
+            if (stat(str_data(&path), &st) == 0 && S_ISDIR(st.st_mode) &&
+                file_lookup (str_data(&path), "index.theme")) {
+                str_cat_c (&path, "/index.theme");
+
+                theme_found = true;
+                print_theme_name(str_data(&path));
+                printf (" (%s)\n", str_data(&path));
+            }
+            str_free (&theme_dir);
+        }
+    }
+
+    if (!theme_found) {
+        printf ("No icon themes found.\n");
+    }
+
+    closedir (d);
+    str_free (&path);
 }
 
 void print_icon_sizes (char *icon_name)
@@ -169,7 +266,7 @@ void print_icon_sizes (char *icon_name)
         string_t dir = strn_new (section_name, section_name_len);
         str_put (&path, path_len, &dir);
 
-        if (file_lookup (str_data (&path), icon_name)) {
+        if (file_lookup_no_ext (str_data (&path), icon_name)) {
             while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
                 char *key, *value;
                 uint32_t key_len, value_len;
@@ -229,7 +326,9 @@ int main(int argc, char *argv[])
     gtk_icon_theme_get_search_path (icon_theme, &path, &num_paths);
     int i;
     for (i=0; i<num_paths; i++) {
-        printf ("%s\n", path[i]);
+        printf ("%s:\n", path[i]);
+        print_icon_themes (path[i]);
+        printf ("\n");
     }
 
     while (*sizes) {
