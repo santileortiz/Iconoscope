@@ -359,16 +359,25 @@ void strn_set (string_t *str, const char *c_str, size_t len)
     dest[len] = '\0';
 }
 
-#define str_put(str,pos,c_str) strn_put(str,pos,(c_str),((c_str)!=NULL?strlen(c_str):0))
-void strn_put (string_t *str, size_t pos, const char *c_str, size_t len)
+void str_put (string_t *dest, size_t pos, string_t *str)
 {
-    str_maybe_grow (str, pos + len, true);
+    str_maybe_grow (dest, pos + str_len(str), true);
 
-    char *dest = str_data(str) + pos;
+    char *dst = str_data(dest) + pos;
+    memmove (dst, str_data(str), str_len(str));
+    dst[str_len(str)] = '\0';
+}
+
+#define str_put_c(dest,pos,c_str) strn_put_c(dest,pos,(c_str),((c_str)!=NULL?strlen(c_str):0))
+void strn_put_c (string_t *dest, size_t pos, const char *c_str, size_t len)
+{
+    str_maybe_grow (dest, pos + len, true);
+
+    char *dst = str_data(dest) + pos;
     if (c_str != NULL) {
-        memmove (dest, c_str, len);
+        memmove (dst, c_str, len);
     }
-    dest[len] = '\0';
+    dst[len] = '\0';
 }
 
 void str_cpy (string_t *dest, string_t *src)
@@ -407,6 +416,49 @@ void strn_cat_c (string_t *dest, char *src, size_t len)
 char str_last (string_t *str)
 {
     return str_data(str)[str_len(str)-1];
+}
+
+//////////////////////
+// PARSING UTILITIES
+//
+// These are some small functions useful when parsing text files
+
+static inline
+char *consume_line (char *c)
+{
+    while (*c && *c != '\n') {
+           c++;
+    }
+    return ++c;
+}
+
+static inline
+bool is_space (char *c)
+{
+    return *c == ' ' ||  *c == '\t';
+}
+
+static inline
+char *consume_spaces (char *c)
+{
+    while (is_space(c)) {
+           c++;
+    }
+    return c;
+}
+
+static inline
+bool is_end_of_line_or_file (char *c)
+{
+    c = consume_spaces (c);
+    return *c == '\n' || *c == '\0';
+}
+
+static inline
+bool is_end_of_line (char *c)
+{
+    c = consume_spaces (c);
+    return *c == '\n';
 }
 
 #define VECT_X 0
@@ -1304,6 +1356,36 @@ void sorted_array_print (int *arr, int n)
     memcpy (sorted, arr, n*sizeof(int));
     int_sort (sorted, n);
     array_print (sorted, n);
+}
+
+// Does binary search over arr. If n is not present, insert it at it's sorted
+// position. If n is found in arr, do nothing.
+void int_array_set_insert (int n, int *arr, int *arr_len, int arr_max_size)
+{
+    bool found = false;
+    int low = 0;
+    int up = *arr_len;
+    while (low != up) {
+        int mid = (low + up)/2;
+        if (n == arr[mid]) {
+            found = true;
+            break;
+        } else if (n < arr[mid]) {
+            up = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    if (!found) {
+        assert (*arr_len < arr_max_size - 1);
+        uint32_t i;
+        for (i=*arr_len; i>low; i--) {
+            arr[i] = arr[i-1];
+        }
+        arr[low] = n;
+        (*arr_len)++;
+    }
 }
 
 void print_u64_array (uint64_t *arr, int n)
