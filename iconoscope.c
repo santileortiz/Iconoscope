@@ -176,7 +176,7 @@ bool file_lookup (char *dir, char *file)
     return res;
 }
 
-void print_theme_name (char *path)
+char* get_theme_name (mem_pool_t *pool, char *path)
 {
     char *theme_index = full_file_read (NULL, path);
     char *c = theme_index;
@@ -185,20 +185,60 @@ void print_theme_name (char *path)
     uint32_t section_name_len;
     c = seek_next_section (c, &section_name, &section_name_len);
 
+    char *res;
     char *name_str = "Name";
-    while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
+    while ((c = consume_ignored_lines (c)) && *c && !is_end_of_section(c)) {
         char *key, *value;
         uint32_t key_len, value_len;
         c = seek_next_key_value (c, &key, &key_len, &value, &value_len);
         if (strlen (name_str) == key_len && strncmp (name_str, key, key_len) == 0) {
-            printf ("%.*s", value_len, value);
+            res = pom_push_size (pool, value_len+1);
+            memcpy (res, value, value_len);
+            res[value_len] = '\0';
         }
 
     }
     free (theme_index);
+    return res;
 }
 
-void print_icon_themes (char *path_c)
+struct icon_theme_t {
+    char *name;
+    char *dir;
+};
+
+struct it_da_t {
+    struct icon_theme_t *data;
+    uint32_t len;
+    uint32_t capacity;
+};
+
+void it_da_append (struct it_da_t *arr, struct icon_theme_t *e)
+{
+    if (arr->capacity == 0) {
+        arr->capacity = 10;
+        arr->data = malloc (arr->capacity * sizeof (struct icon_theme_t));
+
+    } else if (arr->len + 1 == arr->capacity) {
+        arr->capacity *= 2;
+        struct icon_theme_t *tmp = realloc (arr->data, arr->capacity*sizeof (struct icon_theme_t));
+        if (tmp == NULL) {
+            printf ("Realloc failed.\n");
+        } else {
+            arr->data = tmp;
+        }
+    }
+
+    arr->data[arr->len] = *e;
+    arr->len++;
+}
+
+void it_da_free (struct it_da_t *arr)
+{
+    free (arr->data);
+}
+
+void append_icon_themes (mem_pool_t *pool, char *path_c, struct it_da_t *themes_arr)
 {
     string_t path = str_new (path_c);
     if (str_last(&path) != '/') {
@@ -209,32 +249,32 @@ void print_icon_themes (char *path_c)
     struct stat st;
     if (stat(path_c, &st) == -1 && errno == ENOENT) {
         // NOTE: Current search paths may contain non existent directories.
-        printf ("Search path does not exist.\n");
+        //printf ("Search path does not exist.\n");
         return;
     }
 
-    bool theme_found = false;
     DIR *d = opendir (path_c);
     struct dirent entry_info, *info_res;
     while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
-        if (entry_info.d_name[0] != '.') {
+        if (strcmp ("default", entry_info.d_name) == 0) {
+            continue;
+        } else if (entry_info.d_name[0] != '.') {
             string_t theme_dir = str_new (entry_info.d_name);
             str_put (&path, path_len, &theme_dir);
 
             if (stat(str_data(&path), &st) == 0 && S_ISDIR(st.st_mode) &&
                 file_lookup (str_data(&path), "index.theme")) {
-                str_cat_c (&path, "/index.theme");
 
-                theme_found = true;
-                print_theme_name(str_data(&path));
-                printf (" (%s)\n", str_data(&path));
+                struct icon_theme_t theme;
+                theme.dir = pom_push_size (pool, str_len(&path)+1);
+                memcpy (theme.dir, str_data(&path), str_len(&path)+1);
+
+                str_cat_c (&path, "/index.theme");
+                theme.name = get_theme_name(pool, str_data(&path));
+                it_da_append (themes_arr, &theme);
             }
             str_free (&theme_dir);
         }
-    }
-
-    if (!theme_found) {
-        printf ("No icon themes found.\n");
     }
 
     closedir (d);
@@ -305,6 +345,28 @@ gboolean on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer data) {
     return FALSE;
 }
 
+void get_all_icon_themes (mem_pool_t *pool, struct icon_theme_t **themes, uint32_t *num_themes)
+{
+    GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
+    gchar **path;
+    gint num_paths;
+    gtk_icon_theme_get_search_path (icon_theme, &path, &num_paths);
+
+    struct it_da_t themes_arr = {0};
+    int i;
+    for (i=0; i<num_paths; i++) {
+        append_icon_themes (pool, path[i], &themes_arr);
+    }
+
+    if (themes_arr.len > 0) {
+        *num_themes = themes_arr.len;
+        *themes = pom_push_size (pool, sizeof (struct icon_theme_t) * themes_arr.len);
+        memcpy (*themes, themes_arr.data, sizeof(struct icon_theme_t) * themes_arr.len);
+    }
+
+    it_da_free (&themes_arr);
+}
+
 int main(int argc, char *argv[])
 {
     GtkWidget *window;
@@ -313,30 +375,29 @@ int main(int argc, char *argv[])
 
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-    gtk_window_set_title(GTK_WINDOW(window), "GTK window");
+    gtk_window_set_title(GTK_WINDOW(window), "Iconoscope");
 
     g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
     g_signal_connect (G_OBJECT(window), "key_press_event", G_CALLBACK (on_key_press), NULL);
 
     GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
     gint *sizes = gtk_icon_theme_get_icon_sizes (icon_theme, "io.elementary.code");
-
-    gchar **path;
-    gint num_paths;
-    gtk_icon_theme_get_search_path (icon_theme, &path, &num_paths);
-    int i;
-    for (i=0; i<num_paths; i++) {
-        printf ("%s:\n", path[i]);
-        print_icon_themes (path[i]);
-        printf ("\n");
-    }
-
     while (*sizes) {
         printf ("%d ", *sizes++);
     }
     printf ("\n");
-
     print_icon_sizes ("io.elementary.code");
+    printf ("\n");
+
+    mem_pool_t pool = {0};
+    struct icon_theme_t *themes;
+    uint32_t num_themes;
+    get_all_icon_themes (&pool, &themes, &num_themes);
+
+    int j;
+    for (j=0; j<num_themes; j++) {
+        printf ("%s (%s)\n", themes[j].name, themes[j].dir);
+    }
 
     gtk_widget_set_size_request (window, 700, 700);
     //GtkWidget *image = gtk_image_new_from_file (".svg");

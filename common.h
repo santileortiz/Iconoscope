@@ -429,7 +429,12 @@ char *consume_line (char *c)
     while (*c && *c != '\n') {
            c++;
     }
-    return ++c;
+
+    if (*c) {
+        c++;
+    }
+
+    return c;
 }
 
 static inline
@@ -1835,6 +1840,30 @@ char* collapse_str_arr (char **arr, int n, mem_pool_t *pool)
     ptr--;
     *ptr = '\0';
     return res;
+}
+
+// Flattens an array of num_arrs arrays (arrs) into a single array e. Elements
+// in arrs are of size e_size and the lengths of each array is specified in the
+// array arrs_lens.
+void flatten_array (mem_pool_t *pool, uint32_t num_arrs, size_t e_size,
+                    void **arrs, uint32_t *arrs_lens,
+                    void **e, uint32_t *num_e)
+{
+    *num_e = 0;
+    int i;
+    for (i=0; i<num_arrs; i++) {
+        *num_e += arrs_lens [i];
+    }
+
+    void *res = pom_push_size (pool, *num_e * e_size);
+    uint8_t *ptr = res;
+
+    for (i=0; i<num_arrs; i++) {
+        memcpy (ptr, arrs[i], arrs_lens[i]*e_size);
+        ptr += arrs_lens[i]*e_size;
+    }
+
+    *e = res;
 }
 
 // Expand _str_ as bash would, allocate it in _pool_ or heap. 
