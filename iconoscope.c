@@ -367,6 +367,56 @@ void get_all_icon_themes (mem_pool_t *pool, struct icon_theme_t **themes, uint32
     it_da_free (&themes_arr);
 }
 
+gint str_cmp_callback (gconstpointer a, gconstpointer b)
+{
+    // NOTE: The flip in arguments' order is intentional, we want to sort
+    // backwards because GtkListBox has only a prepend method.
+    return g_strcmp0 ((const char*)b, (const char*)a);
+}
+
+GtkWidget *scrolled_icon_list  = NULL, *icon_list = NULL;
+void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
+{
+    // NOTE: We can't use:
+    //    gtk_container_remove(GTK_CONTAINER(scrolled_icon_list), icon_list)
+    // because gtk_container_add() wraps icon_list in a GtkViewport so
+    // scrolled_icon_list isn't actually the parent of icon_list.
+    gtk_container_remove (GTK_CONTAINER(scrolled_icon_list),
+                          gtk_bin_get_child (GTK_BIN (scrolled_icon_list)));
+
+    // Build a new widget with the list of icons for the chosen theme
+    GtkIconTheme *icon_theme = gtk_icon_theme_new ();
+    gchar *theme_name = gtk_combo_box_text_get_active_text (GTK_COMBO_BOX_TEXT(themes_combobox));
+    gtk_icon_theme_set_custom_theme (icon_theme, theme_name);
+
+    icon_list = gtk_list_box_new ();
+    gtk_widget_set_vexpand (icon_list, TRUE);
+    gtk_widget_set_hexpand (icon_list, TRUE);
+    GList *icon_names = gtk_icon_theme_list_icons (icon_theme, NULL);
+    icon_names = g_list_sort (icon_names, str_cmp_callback);
+
+    uint32_t i = 0;
+    GList *l;
+    for (l = icon_names; l != NULL; l = l->next)
+    {
+        // NOTE: Ignore symbolic icons for now
+        if (g_str_has_suffix (l->data, "symbolic")) {
+            continue;
+        }
+
+        GtkWidget *row = gtk_label_new (l->data);
+        gtk_list_box_prepend (GTK_LIST_BOX(icon_list), row);
+        gtk_widget_set_halign (row, GTK_ALIGN_START);
+
+        gtk_widget_set_margin_start (row, 6);
+        i++;
+    }
+    printf ("%u\n", i);
+
+    gtk_container_add (GTK_CONTAINER(scrolled_icon_list), icon_list);
+    gtk_widget_show_all(icon_list);
+}
+
 int main(int argc, char *argv[])
 {
     GtkWidget *window;
@@ -387,21 +437,52 @@ int main(int argc, char *argv[])
     }
     printf ("\n");
     print_icon_sizes ("io.elementary.code");
-    printf ("\n");
 
     mem_pool_t pool = {0};
     struct icon_theme_t *themes;
     uint32_t num_themes;
     get_all_icon_themes (&pool, &themes, &num_themes);
 
-    int j;
-    for (j=0; j<num_themes; j++) {
-        printf ("%s (%s)\n", themes[j].name, themes[j].dir);
-    }
+    icon_list = gtk_list_box_new ();
+    gtk_widget_set_vexpand (icon_list, TRUE);
 
-    gtk_widget_set_size_request (window, 700, 700);
-    //GtkWidget *image = gtk_image_new_from_file (".svg");
-    //gtk_container_add(GTK_CONTAINER(window), image);
+    GtkWidget *themes_label = gtk_label_new ("Theme:");
+    GtkStyleContext *ctx = gtk_widget_get_style_context (themes_label);
+    gtk_style_context_add_class (ctx, "h5");
+    gtk_widget_set_margin_start (themes_label, 6);
+
+    GtkWidget *themes_combobox = gtk_combo_box_text_new ();
+    gtk_widget_set_margin_top (themes_combobox, 6);
+    gtk_widget_set_margin_bottom (themes_combobox, 6);
+    gtk_widget_set_margin_start (themes_combobox, 12);
+    gtk_widget_set_margin_end (themes_combobox, 6);
+    int i;
+    for (i=0; i<num_themes; i++) {
+        gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT(themes_combobox), themes[i].name);
+    }
+    g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_theme_changed), NULL);
+
+    GtkWidget *theme_selector = gtk_grid_new ();
+    gtk_grid_attach (GTK_GRID(theme_selector), themes_label, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(theme_selector), themes_combobox, 1, 0, 1, 1);
+
+    GtkWidget *sidebar = gtk_grid_new ();
+    gtk_grid_attach (GTK_GRID(sidebar), theme_selector, 0, 1, 1, 1);
+
+    scrolled_icon_list = gtk_scrolled_window_new (NULL, NULL);
+    gtk_container_add (GTK_CONTAINER (scrolled_icon_list), icon_list);
+    gtk_grid_attach (GTK_GRID(sidebar), scrolled_icon_list, 0, 0, 1, 1);
+
+    GtkWidget *image = gtk_image_new_from_file ("/usr/share/icons/hicolor/48x48/apps/io.elementary.code.svg");
+    gtk_widget_set_size_request (image, 500, 400);
+
+    GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+    gtk_paned_pack1 (GTK_PANED(paned), sidebar, TRUE, FALSE);
+    gtk_paned_pack2 (GTK_PANED(paned), image, TRUE, TRUE);
+
+    gtk_combo_box_set_active (GTK_COMBO_BOX(themes_combobox), 0);
+
+    gtk_container_add(GTK_CONTAINER(window), paned);
 
     gtk_widget_show_all(window);
 
