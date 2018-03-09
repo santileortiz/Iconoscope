@@ -2003,9 +2003,28 @@ char* change_extension (mem_pool_t *pool, char *path, char *new_ext)
     while (i>0 && path[i-1] != '.') {
         i--;
     }
+
     char *res = (char*)mem_pool_push_size (pool, path_len+strlen(new_ext)+1);
     strcpy (res, path);
     strcpy (&res[i], new_ext);
+    return res;
+}
+
+char* remove_extension (mem_pool_t *pool, char *path)
+{
+    size_t end_pos = strlen(path)-1;
+    while (end_pos>0 && path[end_pos] != '.') {
+        end_pos--;
+    }
+
+    if (end_pos == 0) {
+        // NOTE: path had no extension.
+        return NULL;
+    }
+
+    char *res = (char*)mem_pool_push_size (pool, end_pos+1);
+    memmove (res, path, end_pos);
+    res[end_pos] = '\0';
     return res;
 }
 
