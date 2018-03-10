@@ -534,95 +534,119 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
   return res;
 }
 
+struct icon_file_t {
+    char *fname;
+    uint32_t size;
+    uint32_t scale;
+    bool scalable;
+};
+
 struct icon_info_t {
     mem_pool_t pool;
     char *icon_name;
     uint32_t num_files;
-    char **files;
-    uint32_t *sizes;
+    struct icon_file_t *files;
 };
 
 struct icon_theme_t *selected_theme = NULL;
 struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_name)
 {
     struct icon_info_t res = {0};
-    GArray *sizes = g_array_new (FALSE, FALSE, sizeof(uint32_t));
-    GPtrArray *files = g_ptr_array_new ();
+    GArray *files = g_array_new (FALSE, FALSE, sizeof(struct icon_file_t));
 
-    int i;
-    for (i = 0; i < theme->num_dirs; i++) {
-        string_t path = str_new (theme->dirs[i]);
-        if (str_last (&path) != '/') {
-            str_cat_c (&path, "/");
+    if (theme->index_file != NULL) {
+        int i;
+        for (i = 0; i < theme->num_dirs; i++) {
+            string_t path = str_new (theme->dirs[i]);
+            if (str_last (&path) != '/') {
+                str_cat_c (&path, "/");
+            }
+            uint32_t path_len = str_len (&path);
+            char *c = theme->index_file;
+
+            // Ignore the first section: [Icon Theme]
+            c = seek_next_section (c, NULL, NULL);
+            c = consume_section (c);
+
+            while (*c) {
+                char *section_name;
+                uint32_t section_name_len;
+                c = seek_next_section (c, &section_name, &section_name_len);
+                string_t dir = strn_new (section_name, section_name_len);
+                str_put (&path, path_len, &dir);
+
+                char *icon_path;
+                if (icon_lookup (&res.pool, str_data (&path), icon_name, &icon_path)) {
+                    // TODO: Maybe get this information before looking up the directory
+                    // and conditionally call icon_lookup() depending on the information
+                    // we get.
+                    struct icon_file_t f;
+                    f.scale = 1;
+                    f.scalable = false;
+                    while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
+                        char *key, *value;
+                        uint32_t key_len, value_len;
+                        c = seek_next_key_value (c, &key, &key_len, &value, &value_len);
+                        if (strncmp (key, "Size", MIN(4, key_len)) == 0) {
+                            sscanf (value, "%"SCNu32, &f.size);
+
+                        } else if (strncmp (key, "Scale", MIN(5, key_len)) == 0) {
+                            sscanf (value, "%"SCNu32, &f.scale);
+
+                        } else if (strncmp (key, "Type", MIN(4, key_len)) == 0 &&
+                                   strncmp (value, "Scalable", MIN(8, value_len)) == 0) {
+                            f.scalable = true;
+                            printf ("Scalable: %s\n", icon_path);
+                        }
+                    }
+
+                    if (f.scale == 1) {
+                        f.fname = icon_path;
+                        g_array_append_val (files, f);
+                    }
+
+                } else {
+                    c = consume_section (c);
+                }
+
+                str_free (&dir);
+            }
+
+            if (files->len > 0) {
+                // If we found something in a search path then stop looking in the
+                // other ones.
+                break;
+            }
+
+            str_free (&path);
         }
-        uint32_t path_len = str_len (&path);
-        str_cat_c (&path, "index.theme");
 
-        char *c = theme->index_file;
-
-        // Ignore the first section: [Icon Theme]
-        c = seek_next_section (c, NULL, NULL);
-        c = consume_section (c);
-
-        while (*c) {
-            char *section_name;
-            uint32_t section_name_len;
-            c = seek_next_section (c, &section_name, &section_name_len);
-            string_t dir = strn_new (section_name, section_name_len);
-            str_put (&path, path_len, &dir);
+    } else {
+        int i;
+        for (i = 0; i < theme->num_dirs; i++) {
+            string_t path = str_new (theme->dirs[i]);
+            if (str_last (&path) != '/') {
+                str_cat_c (&path, "/");
+            }
 
             char *icon_path;
             if (icon_lookup (&res.pool, str_data (&path), icon_name, &icon_path)) {
-                // TODO: Maybe get this information before looking up the directory
-                // and conditionally call icon_lookup() depending on the information
-                // we get.
-                bool scalable = false;
-                uint32_t size, scale = 1;
-                while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
-                    char *key, *value;
-                    uint32_t key_len, value_len;
-                    c = seek_next_key_value (c, &key, &key_len, &value, &value_len);
-                    if (strncmp (key, "Size", MIN(4, key_len)) == 0) {
-                        sscanf (value, "%"SCNu32, &size);
-
-                    } else if (strncmp (key, "Scale", MIN(5, key_len)) == 0) {
-                        sscanf (value, "%"SCNu32, &scale);
-
-                    } else if (strncmp (key, "Type", MIN(4, key_len)) == 0 &&
-                               strncmp (value, "Scalable", MIN(8, value_len)) == 0) {
-                        scalable = true;
-                        break;
-                    }
-                }
-
-                if (scale == 1 && !scalable) {
-                    g_array_append_val (sizes, size);
-                    g_ptr_array_add (files, icon_path);
-                }
-
-            } else {
-                c = consume_section (c);
+                struct icon_file_t f;
+                f.scale = 1;
+                f.scalable = false;
+                f.fname = icon_path;
+                g_array_append_val (files, f);
             }
 
-            str_free (&dir);
-        }
-
-        if (files->len > 0) {
-            // If we found something in a search path then stop looking in the
-            // other ones.
-            break;
+            str_free (&path);
         }
     }
 
     res.num_files = files->len;
-    res.files = (char**)mem_pool_push_size (&res.pool, sizeof(char*)*files->len);
-    memcpy (res.files, files->pdata, sizeof(char*)*files->len);
+    res.files = (struct icon_file_t*)mem_pool_push_size (&res.pool, sizeof(struct icon_file_t)*files->len);
+    memcpy (res.files, files->data, sizeof(struct icon_file_t)*files->len);
 
-    res.sizes = (uint32_t*)mem_pool_push_size (&res.pool, sizeof(uint32_t)*sizes->len);
-    memcpy (res.sizes, sizes->data, sizeof(uint32_t)*sizes->len);
-
-    g_ptr_array_free (files, TRUE);
-    g_array_free (sizes, TRUE);
+    g_array_free (files, TRUE);
 
     return res;
 }
@@ -651,16 +675,46 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
 
     int i;
     for (i=0; i < icon_info.num_files; i++) {
-        GtkWidget *image = gtk_image_new_from_file (icon_info.files[i]);
-        gtk_widget_set_size_request (image, icon_info.sizes[i], icon_info.sizes[i]);
-        gtk_widget_set_valign (image, GTK_ALIGN_END);
-        gtk_grid_attach (GTK_GRID(icon_view), image, i, 0, 1, 1);
+        struct icon_file_t *f = &icon_info.files[i];
 
-        char buff[10];
-        sprintf (buff, "%d", icon_info.sizes[i]);
+
+        GtkWidget *image = gtk_image_new_from_file (f->fname);
+        gtk_widget_set_valign (image, GTK_ALIGN_END);
+
+        GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(image));
+        int image_width = gdk_pixbuf_get_width(pixbuf);
+        int image_height = gdk_pixbuf_get_height(pixbuf);
+        char buff[16];
+        if (selected_theme->dir_name != NULL) {
+            if (f->scalable) {
+                sprintf (buff, "%d\n(Scalable)", f->size);
+                gtk_widget_set_size_request (image, image_width, image_height);
+            } else {
+                gtk_widget_set_size_request (image, f->size, f->size);
+                sprintf (buff, "%d", f->size);
+            }
+        } else {
+            // The theme is the one that contains unthemed icons. Set the label
+            // to the empty string.
+            buff[0] = '\0';
+        }
+
         GtkWidget *label = gtk_label_new (buff);
-        gtk_grid_attach (GTK_GRID(icon_view), label, i, 1, 1, 1);
-        //printf ("%s (%d)\n", icon_info.files[i], icon_info.sizes[i]);
+        gtk_widget_set_valign (label, GTK_ALIGN_START);
+        gtk_label_set_justify (GTK_LABEL(label), GTK_JUSTIFY_CENTER);
+
+        if (image_width/image_height > 1) {
+            // NOTE: At least one package (aptdaemon-data) provides animated
+            // icons in a single file by appending the frames side by side.
+            // Here we detect that case and instead display these icons
+            // vertically.
+            gtk_grid_attach (GTK_GRID(icon_view), image, 0, 2*i, 1, 1);
+            gtk_grid_attach (GTK_GRID(icon_view), label, 0, 2*i+1, 1, 1);
+        } else {
+            gtk_grid_attach (GTK_GRID(icon_view), image, i, 0, 1, 1);
+            gtk_grid_attach (GTK_GRID(icon_view), label, i, 1, 1, 1);
+        }
+        //printf ("%s (%d)\n", f->fname, f->size);
     }
     //printf ("\n");
 
@@ -694,7 +748,8 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     for (l = icon_names; l != NULL; l = l->next)
     {
         // NOTE: Ignore symbolic icons for now
-        if (g_str_has_suffix (l->data, "symbolic")) {
+        if (g_str_has_suffix (l->data, "symbolic") ||
+            g_str_has_suffix (l->data, "symbolic-rtl")) {
             continue;
         }
         //printf ("%s\n", (char*)l->data);
