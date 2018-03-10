@@ -3,8 +3,6 @@
 
 #include "common.h"
 
-#define ICON_PATH "/usr/share/icons/hicolor/"
-
 // INI or desktop file format parser.
 //
 // The idea of the following functions is to allow seeking through a INI format
@@ -119,10 +117,7 @@ bool is_end_of_section (char *c)
     return *c == '[' || *c == '\0';
 }
 
-// Returns the number of times file exists inside dir.
-// NOTE: The value can be >1 because file MUST not contain any extension so
-// there may be repetitions.
-int file_lookup_no_ext (char *dir, char *file)
+bool icon_lookup (mem_pool_t *pool, char *dir, const char *icon_name, char **found_file)
 {
     struct stat st;
     if (stat(dir, &st) == -1 && errno == ENOENT) {
@@ -132,22 +127,54 @@ int file_lookup_no_ext (char *dir, char *file)
         return 0;
     }
 
-    int res = 0;
+
+    char *ext_priority[] = {"svg", "png", "xpm"};
+    uint32_t ext_id = ARRAY_SIZE(ext_priority);
     DIR *d = opendir (dir);
     struct dirent entry_info, *info_res;
     while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
-        uint32_t file_len = strlen(file);
+        uint32_t name_len = strlen(icon_name);
         uint32_t entry_len = strlen(entry_info.d_name);
-        int cmp = strncmp (file, entry_info.d_name, MIN (file_len, entry_len));
+        int cmp = strncmp (icon_name, entry_info.d_name, MIN (name_len, entry_len));
         if (cmp == 0) {
-            if (file_len == entry_len ||
-                (file_len < entry_len && entry_info.d_name[file_len] == '.')) {
-                res++;
+            if (name_len == entry_len ||
+                (name_len < entry_len && entry_info.d_name[name_len] == '.')) {
+
+                char *entry_ext = get_extension (entry_info.d_name);
+                int i;
+                for (i=0; i<ARRAY_SIZE (ext_priority); i++) {
+                    if (strcmp (ext_priority[i], entry_ext) == 0 &&
+                        i < ext_id) {
+                        ext_id = i;
+                    }
+                }
+
+                if (ext_id == 0) {
+                    break;
+                }
             }
         }
     }
+
     closedir (d);
-    return res;
+
+    if (ext_id == ARRAY_SIZE(ext_priority)) {
+        // No icon found with that name
+        return false;
+    } else {
+        string_t found_path = str_new (dir);
+        if (str_last (&found_path) != '/') {
+            str_cat_c (&found_path, "/");
+        }
+        str_cat_c (&found_path, icon_name);
+        str_cat_c (&found_path, ".");
+        str_cat_c (&found_path, ext_priority[ext_id]);
+
+        *found_file = mem_pool_push_size (pool, str_len(&found_path) + 1);
+        memcpy (*found_file, str_data(&found_path), str_len(&found_path) + 1);
+        str_free (&found_path);
+        return true;
+    }
 }
 
 bool file_lookup (char *dir, char *file)
@@ -235,56 +262,6 @@ void it_da_append (struct it_da_t *arr, struct icon_theme_t *e)
 void it_da_free (struct it_da_t *arr)
 {
     free (arr->data);
-}
-
-void print_icon_sizes (char *icon_name)
-{
-    mem_pool_t pool = {0};
-
-    string_t path = str_new (ICON_PATH);
-    uint32_t path_len = str_len (&path);
-    str_cat_c (&path, "index.theme");
-
-    char *theme_index = full_file_read (&pool, str_data(&path));
-    char *c = theme_index;
-
-    // Ignore the first section: [Icon Theme]
-    c = seek_next_section (c, NULL, NULL);
-    c = consume_section (c);
-
-    int sizes [50];
-    int num_sizes = 0;
-    char buff [4];
-    while (*c) {
-        char *section_name;
-        uint32_t section_name_len;
-        c = seek_next_section (c, &section_name, &section_name_len);
-        string_t dir = strn_new (section_name, section_name_len);
-        str_put (&path, path_len, &dir);
-
-        if (file_lookup_no_ext (str_data (&path), icon_name)) {
-            while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
-                char *key, *value;
-                uint32_t key_len, value_len;
-                c = seek_next_key_value (c, &key, &key_len, &value, &value_len);
-                if (strncmp (key, "Size", MIN(4, key_len)) == 0) {
-                    memcpy (buff, value, value_len);
-                    buff [value_len] = '\0';
-                    int_array_set_insert (atoi (buff), sizes, &num_sizes, ARRAY_SIZE (sizes));
-                }
-            }
-        } else {
-            c = consume_section (c);
-        }
-
-        str_free (&dir);
-    }
-
-    int i;
-    for (i=0; i < num_sizes; i++) {
-        printf ("%d ", sizes[i]);
-    }
-    printf ("\n");
 }
 
 gboolean delete_callback (GtkWidget *widget, GdkEvent *event, gpointer user_data)
@@ -449,9 +426,7 @@ void get_all_icon_themes (mem_pool_t *pool, struct icon_theme_t **themes, uint32
 
 gint str_cmp_callback (gconstpointer a, gconstpointer b)
 {
-    // NOTE: The flip in arguments' order is intentional, we want to sort
-    // backwards because GtkListBox has only a prepend method.
-    return g_strcmp0 ((const char*)b, (const char*)a);
+    return g_strcmp0 ((const char*)a, (const char*)b);
 }
 
 void copy_key_into_list (gpointer key, gpointer value, gpointer user_data)
@@ -559,34 +534,159 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
   return res;
 }
 
-GtkWidget *scrolled_icon_list  = NULL, *icon_list = NULL;
+struct icon_info_t {
+    mem_pool_t pool;
+    char *icon_name;
+    uint32_t num_files;
+    char **files;
+    uint32_t *sizes;
+};
+
+struct icon_theme_t *selected_theme = NULL;
+struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_name)
+{
+    struct icon_info_t res = {0};
+    GArray *sizes = g_array_new (FALSE, FALSE, sizeof(uint32_t));
+    GPtrArray *files = g_ptr_array_new ();
+
+    int i;
+    for (i = 0; i < theme->num_dirs; i++) {
+        string_t path = str_new (theme->dirs[i]);
+        if (str_last (&path) != '/') {
+            str_cat_c (&path, "/");
+        }
+        uint32_t path_len = str_len (&path);
+        str_cat_c (&path, "index.theme");
+
+        char *c = theme->index_file;
+
+        // Ignore the first section: [Icon Theme]
+        c = seek_next_section (c, NULL, NULL);
+        c = consume_section (c);
+
+        while (*c) {
+            char *section_name;
+            uint32_t section_name_len;
+            c = seek_next_section (c, &section_name, &section_name_len);
+            string_t dir = strn_new (section_name, section_name_len);
+            str_put (&path, path_len, &dir);
+
+            char *icon_path;
+            if (icon_lookup (&res.pool, str_data (&path), icon_name, &icon_path)) {
+                // TODO: Maybe get this information before looking up the directory
+                // and conditionally call icon_lookup() depending on the information
+                // we get.
+                bool scalable = false;
+                uint32_t size, scale = 1;
+                while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
+                    char *key, *value;
+                    uint32_t key_len, value_len;
+                    c = seek_next_key_value (c, &key, &key_len, &value, &value_len);
+                    if (strncmp (key, "Size", MIN(4, key_len)) == 0) {
+                        sscanf (value, "%"SCNu32, &size);
+
+                    } else if (strncmp (key, "Scale", MIN(5, key_len)) == 0) {
+                        sscanf (value, "%"SCNu32, &scale);
+
+                    } else if (strncmp (key, "Type", MIN(4, key_len)) == 0 &&
+                               strncmp (value, "Scalable", MIN(8, value_len)) == 0) {
+                        scalable = true;
+                        break;
+                    }
+                }
+
+                if (scale == 1 && !scalable) {
+                    g_array_append_val (sizes, size);
+                    g_ptr_array_add (files, icon_path);
+                }
+
+            } else {
+                c = consume_section (c);
+            }
+
+            str_free (&dir);
+        }
+
+        if (files->len > 0) {
+            // If we found something in a search path then stop looking in the
+            // other ones.
+            break;
+        }
+    }
+
+    res.num_files = files->len;
+    res.files = (char**)mem_pool_push_size (&res.pool, sizeof(char*)*files->len);
+    memcpy (res.files, files->pdata, sizeof(char*)*files->len);
+
+    res.sizes = (uint32_t*)mem_pool_push_size (&res.pool, sizeof(uint32_t)*sizes->len);
+    memcpy (res.sizes, sizes->data, sizeof(uint32_t)*sizes->len);
+
+    g_ptr_array_free (files, TRUE);
+    g_array_free (sizes, TRUE);
+
+    return res;
+}
+
+GtkWidget *icon_view = NULL;
+void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
+{
+    if (row == NULL) {
+        return;
+    }
+
+    GtkWidget *parent = gtk_widget_get_parent (icon_view);
+    gtk_container_remove (GTK_CONTAINER(parent), icon_view);
+
+    icon_view = gtk_grid_new ();
+    gtk_widget_set_valign (icon_view, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign (icon_view, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand (icon_view, TRUE);
+    gtk_widget_set_vexpand (icon_view, TRUE);
+    gtk_grid_set_row_spacing (GTK_GRID(icon_view), 6);
+    gtk_grid_set_column_spacing (GTK_GRID(icon_view), 12);
+
+    GtkWidget *icon_label = gtk_bin_get_child (GTK_BIN(row));
+    const char * icon_name = gtk_label_get_text (GTK_LABEL(icon_label));
+    struct icon_info_t icon_info = get_icon_info (selected_theme, icon_name);
+
+    int i;
+    for (i=0; i < icon_info.num_files; i++) {
+        GtkWidget *image = gtk_image_new_from_file (icon_info.files[i]);
+        gtk_widget_set_size_request (image, icon_info.sizes[i], icon_info.sizes[i]);
+        gtk_widget_set_valign (image, GTK_ALIGN_END);
+        gtk_grid_attach (GTK_GRID(icon_view), image, i, 0, 1, 1);
+
+        char buff[10];
+        sprintf (buff, "%d", icon_info.sizes[i]);
+        GtkWidget *label = gtk_label_new (buff);
+        gtk_grid_attach (GTK_GRID(icon_view), label, i, 1, 1, 1);
+        //printf ("%s (%d)\n", icon_info.files[i], icon_info.sizes[i]);
+    }
+    //printf ("\n");
+
+    gtk_widget_show_all(icon_view);
+    gtk_paned_pack2 (GTK_PANED(parent), icon_view, TRUE, FALSE);
+}
+
+GtkWidget *icon_list = NULL;
 struct icon_theme_t *themes;
 uint32_t num_themes;
 void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
 {
-    // NOTE: We can't use:
-    //    gtk_container_remove(GTK_CONTAINER(scrolled_icon_list), icon_list)
-    // because gtk_container_add() wraps icon_list in a GtkViewport so
-    // scrolled_icon_list isn't actually the parent of icon_list.
-    gtk_container_remove (GTK_CONTAINER(scrolled_icon_list),
-                          gtk_bin_get_child (GTK_BIN (scrolled_icon_list)));
+    // NOTE: It's better to query who the prent widget is (rather than keeping a
+    // reference to it) because it can change in unexpected ways. For instance,
+    // in this case GtkScrolledWindow wraps icon_list in a GtkViewPort.
+    GtkWidget *parent = gtk_widget_get_parent (icon_list);
+    gtk_container_remove (GTK_CONTAINER(parent), icon_list);
 
     icon_list = gtk_list_box_new ();
     gtk_widget_set_vexpand (icon_list, TRUE);
     gtk_widget_set_hexpand (icon_list, TRUE);
+    g_signal_connect (G_OBJECT(icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
 
-#if 1
-    struct icon_theme_t *icon_theme =
+    selected_theme =
         themes + gtk_combo_box_get_active (themes_combobox);
-    GList *icon_names = get_theme_icon_names (icon_theme);
-
-#else
-    GtkIconTheme *icon_theme = gtk_icon_theme_new ();
-    char *theme_name = gtk_combo_box_text_get_active_text (GTK_COMBO_BOX_TEXT (themes_combobox));
-    gtk_icon_theme_set_custom_theme (icon_theme, theme_name);
-    GList *icon_names = gtk_icon_theme_list_icons (icon_theme, NULL);
-#endif
-
+    GList *icon_names = get_theme_icon_names (selected_theme);
     icon_names = g_list_sort (icon_names, str_cmp_callback);
 
     uint32_t i = 0;
@@ -600,15 +700,18 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
         //printf ("%s\n", (char*)l->data);
 
         GtkWidget *row = gtk_label_new (l->data);
-        gtk_list_box_prepend (GTK_LIST_BOX(icon_list), row);
+        gtk_container_add (GTK_CONTAINER(icon_list), row);
         gtk_widget_set_halign (row, GTK_ALIGN_START);
 
         gtk_widget_set_margin_start (row, 6);
+        gtk_widget_set_margin_end (row, 6);
+        gtk_widget_set_margin_top (row, 3);
+        gtk_widget_set_margin_bottom (row, 3);
         i++;
     }
     //printf ("%u\n", i);
 
-    gtk_container_add (GTK_CONTAINER(scrolled_icon_list), icon_list);
+    gtk_container_add (GTK_CONTAINER(parent), icon_list);
     gtk_widget_show_all(icon_list);
 }
 
@@ -619,25 +722,23 @@ int main(int argc, char *argv[])
     gtk_init(&argc, &argv);
 
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_resize (GTK_WINDOW(window), 970, 650);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-    gtk_window_set_title(GTK_WINDOW(window), "Iconoscope");
+    GtkWidget *header_bar = gtk_header_bar_new ();
+    gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Iconoscope");
+    gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
+    gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
 
     g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
     g_signal_connect (G_OBJECT(window), "key_press_event", G_CALLBACK (on_key_press), NULL);
-
-    //GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
-    //gint *sizes = gtk_icon_theme_get_icon_sizes (icon_theme, "io.elementary.code");
-    //while (*sizes) {
-    //    printf ("%d ", *sizes++);
-    //}
-    //printf ("\n");
-    //print_icon_sizes ("io.elementary.code");
 
     mem_pool_t pool = {0};
     get_all_icon_themes (&pool, &themes, &num_themes);
 
     icon_list = gtk_list_box_new ();
     gtk_widget_set_vexpand (icon_list, TRUE);
+    gtk_widget_set_hexpand (icon_list, TRUE);
+    g_signal_connect (G_OBJECT(icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
 
     GtkWidget *themes_label = gtk_label_new ("Theme:");
     GtkStyleContext *ctx = gtk_widget_get_style_context (themes_label);
@@ -652,7 +753,6 @@ int main(int argc, char *argv[])
     int i;
     for (i=0; i<num_themes; i++) {
         gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT(themes_combobox), themes[i].name);
-        //printf ("%s: %s\n", themes[i].name, themes[i].dir_name);
     }
     g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_theme_changed), NULL);
 
@@ -663,16 +763,14 @@ int main(int argc, char *argv[])
     GtkWidget *sidebar = gtk_grid_new ();
     gtk_grid_attach (GTK_GRID(sidebar), theme_selector, 0, 1, 1, 1);
 
-    scrolled_icon_list = gtk_scrolled_window_new (NULL, NULL);
+    GtkWidget *scrolled_icon_list = gtk_scrolled_window_new (NULL, NULL);
     gtk_container_add (GTK_CONTAINER (scrolled_icon_list), icon_list);
     gtk_grid_attach (GTK_GRID(sidebar), scrolled_icon_list, 0, 0, 1, 1);
 
-    GtkWidget *image = gtk_image_new_from_file ("/usr/share/icons/hicolor/48x48/apps/io.elementary.code.svg");
-    gtk_widget_set_size_request (image, 500, 400);
-
+    icon_view = gtk_grid_new ();
     GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
-    gtk_paned_pack1 (GTK_PANED(paned), sidebar, TRUE, FALSE);
-    gtk_paned_pack2 (GTK_PANED(paned), image, TRUE, TRUE);
+    gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
+    gtk_paned_pack2 (GTK_PANED(paned), icon_view, TRUE, TRUE);
 
     gtk_combo_box_set_active (GTK_COMBO_BOX(themes_combobox), 0);
 

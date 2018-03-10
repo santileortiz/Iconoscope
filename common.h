@@ -402,7 +402,7 @@ void str_cat (string_t *dest, string_t *src)
 }
 
 #define str_cat_c(dest,c_str) strn_cat_c(dest,(c_str),((c_str)!=NULL?strlen(c_str):0))
-void strn_cat_c (string_t *dest, char *src, size_t len)
+void strn_cat_c (string_t *dest, const char *src, size_t len)
 {
     size_t len_dest = str_len(dest);
     size_t total_len = len_dest + len;
