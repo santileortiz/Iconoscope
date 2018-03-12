@@ -3,6 +3,16 @@
 
 #include "common.h"
 
+void add_custom_css (GtkWidget *widget, gchar *css_data)
+{
+    GtkStyleContext *style_context = gtk_widget_get_style_context (widget);
+    GtkCssProvider *css_provider = gtk_css_provider_new ();
+    gtk_css_provider_load_from_data (css_provider, css_data, -1, NULL);
+    gtk_style_context_add_provider (style_context,
+                                    GTK_STYLE_PROVIDER(css_provider),
+                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+}
+
 // INI or desktop file format parser.
 //
 // The idea of the following functions is to allow seeking through a INI format
@@ -267,14 +277,6 @@ void it_da_free (struct it_da_t *arr)
 gboolean delete_callback (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     gtk_main_quit ();
-    return FALSE;
-}
-
-gboolean on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer data) {
-    if (event->keyval == GDK_KEY_q){
-        gtk_main_quit ();
-        return TRUE;
-    }
     return FALSE;
 }
 
@@ -733,9 +735,31 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     gtk_paned_pack2 (GTK_PANED(parent), icon_view, TRUE, FALSE);
 }
 
-GtkWidget *icon_list = NULL;
+GtkWidget *icon_list = NULL, *search_entry = NULL;
 struct icon_theme_t *themes;
 uint32_t num_themes;
+
+gboolean on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer data) {
+    if (event->keyval == GDK_KEY_Escape){
+        gtk_entry_set_text (GTK_ENTRY(search_entry), "");
+        return TRUE;
+    }
+    return FALSE;
+}
+
+gboolean search_filter (GtkListBoxRow *row, gpointer user_data)
+{
+    const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(search_entry));
+    GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
+    const char * icon_name = gtk_label_get_text (GTK_LABEL(row_label));
+
+    if (strstr (icon_name, search_str) != NULL) {
+        return TRUE;
+    } else {
+        return FALSE;
+    }
+}
+
 void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
 {
     // NOTE: It's better to query who the prent widget is (rather than keeping a
@@ -745,9 +769,11 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     gtk_container_remove (GTK_CONTAINER(parent), icon_list);
 
     icon_list = gtk_list_box_new ();
+    add_custom_css (icon_list, ".list { background-color: transparent; }");
     gtk_widget_set_vexpand (icon_list, TRUE);
     gtk_widget_set_hexpand (icon_list, TRUE);
     g_signal_connect (G_OBJECT(icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
+    gtk_list_box_set_filter_func (GTK_LIST_BOX(icon_list), search_filter, NULL, NULL);
 
     selected_theme =
         themes + gtk_combo_box_get_active (themes_combobox);
@@ -779,6 +805,11 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
 
     gtk_container_add (GTK_CONTAINER(parent), icon_list);
     gtk_widget_show_all(icon_list);
+}
+
+void on_search_changed (GtkEditable *search_entry, gpointer user_data)
+{
+    gtk_list_box_invalidate_filter (GTK_LIST_BOX(icon_list));
 }
 
 int main(int argc, char *argv[])
@@ -826,12 +857,17 @@ int main(int argc, char *argv[])
     gtk_grid_attach (GTK_GRID(theme_selector), themes_label, 0, 0, 1, 1);
     gtk_grid_attach (GTK_GRID(theme_selector), themes_combobox, 1, 0, 1, 1);
 
-    GtkWidget *sidebar = gtk_grid_new ();
-    gtk_grid_attach (GTK_GRID(sidebar), theme_selector, 0, 1, 1, 1);
-
     GtkWidget *scrolled_icon_list = gtk_scrolled_window_new (NULL, NULL);
     gtk_container_add (GTK_CONTAINER (scrolled_icon_list), icon_list);
-    gtk_grid_attach (GTK_GRID(sidebar), scrolled_icon_list, 0, 0, 1, 1);
+
+    search_entry = gtk_search_entry_new ();
+    add_custom_css (search_entry, ".entry { border-radius: 13px; }");
+    g_signal_connect (G_OBJECT(search_entry), "changed", G_CALLBACK (on_search_changed), NULL);
+
+    GtkWidget *sidebar = gtk_grid_new ();
+    gtk_grid_attach (GTK_GRID(sidebar), search_entry, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), scrolled_icon_list, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), theme_selector, 0, 2, 1, 1);
 
     icon_view = gtk_grid_new ();
     GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
