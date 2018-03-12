@@ -428,7 +428,7 @@ void get_all_icon_themes (mem_pool_t *pool, struct icon_theme_t **themes, uint32
 
 gint str_cmp_callback (gconstpointer a, gconstpointer b)
 {
-    return g_strcmp0 ((const char*)a, (const char*)b);
+    return g_ascii_strcasecmp ((const char*)a, (const char*)b);
 }
 
 void copy_key_into_list (gpointer key, gpointer value, gpointer user_data)
@@ -700,7 +700,7 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
         char buff[16];
         if (selected_theme->dir_name != NULL) {
             if (f->scalable) {
-                sprintf (buff, "%d\n(Scalable)", f->size);
+                sprintf (buff, "Scalable");
                 gtk_widget_set_size_request (image, image_width, image_height);
             } else {
                 gtk_widget_set_size_request (image, f->size, f->size);
