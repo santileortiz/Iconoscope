@@ -536,9 +536,9 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
 
 struct icon_file_t {
     char *fname;
+    bool scalable;
     uint32_t size;
     uint32_t scale;
-    bool scalable;
 };
 
 struct icon_info_t {
@@ -582,7 +582,6 @@ struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_n
                     // we get.
                     struct icon_file_t f;
                     f.scale = 1;
-                    f.scalable = false;
                     while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
                         char *key, *value;
                         uint32_t key_len, value_len;
@@ -593,11 +592,23 @@ struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_n
                         } else if (strncmp (key, "Scale", MIN(5, key_len)) == 0) {
                             sscanf (value, "%"SCNu32, &f.scale);
 
-                        } else if (strncmp (key, "Type", MIN(4, key_len)) == 0 &&
-                                   strncmp (value, "Scalable", MIN(8, value_len)) == 0) {
-                            f.scalable = true;
-                            printf ("Scalable: %s\n", icon_path);
                         }
+
+                        // NOTE: We now ignore the Scalable type information
+                        // from the directory because it seems meaningless with
+                        // respect to what users do. Instead we should display
+                        // this only as information of the directory.
+                        //
+                        //else if (strncmp (key, "Type", MIN(4, key_len)) == 0 &&
+                        //           strncmp (value, "Scalable", MIN(8, value_len)) == 0) {
+                        //    f.scalable = true;
+                        //    scalable_dir = true;
+                        //}
+                    }
+
+                    f.scalable = false;
+                    if (strstr (str_data(&dir), "scalable") != NULL) {
+                        f.scalable = true;
                     }
 
                     if (f.scale == 1) {
