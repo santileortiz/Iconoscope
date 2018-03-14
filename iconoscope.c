@@ -780,6 +780,7 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     GList *icon_names = get_theme_icon_names (selected_theme);
     icon_names = g_list_sort (icon_names, str_cmp_callback);
 
+    bool first = true;
     uint32_t i = 0;
     GList *l;
     for (l = icon_names; l != NULL; l = l->next)
@@ -794,6 +795,12 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
         GtkWidget *row = gtk_label_new (l->data);
         gtk_container_add (GTK_CONTAINER(icon_list), row);
         gtk_widget_set_halign (row, GTK_ALIGN_START);
+
+        if (first) {
+            first = false;
+            GtkWidget *r = gtk_widget_get_parent (row);
+            gtk_list_box_select_row (GTK_LIST_BOX(icon_list), GTK_LIST_BOX_ROW(r));
+        }
 
         gtk_widget_set_margin_start (row, 6);
         gtk_widget_set_margin_end (row, 6);
