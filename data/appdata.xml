@@ -25,6 +25,11 @@
   <url type="homepage">https://github.com/santileortiz/Iconoscope</url>
   <url type="bugtracker">https://github.com/santileortiz/Iconoscope/issues</url>
 
+  <custom>
+      <value key="x-appcenter-color-primary">#ffed6b</value>
+      <value key="x-appcenter-color-primary-text">#692b00</value>
+  </custom>
+
   <content_rating type="oars-1.1">
       <content_attribute id="violence-cartoon">none</content_attribute>
       <content_attribute id="violence-fantasy">none</content_attribute>
