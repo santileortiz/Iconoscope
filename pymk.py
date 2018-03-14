@@ -5,6 +5,7 @@ assert sys.version_info >= (3,2)
 installation_info = {
     'bin/iconoscope': 'usr/bin/com.github.santileortiz.iconoscope',
     'data/iconoscope.desktop': 'usr/share/applications/com.github.santileortiz.iconoscope.desktop',
+    'data/appdata.xml': 'usr/share/metainfo/com.github.santileortiz.iconoscope.appdata.xml',
     'data/128/iconoscope.svg': 'usr/share/icons/hicolor/128x128/apps/',
     'data/64/iconoscope.svg': 'usr/share/icons/hicolor/64x64/apps/',
     'data/48/iconoscope.svg': 'usr/share/icons/hicolor/48x48/apps/',

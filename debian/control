@@ -1,0 +1,14 @@
+Source: com.github.santileortiz.iconoscope
+Section: x11
+Priority: extra
+Maintainer: Santiago León O. <santileortiz@gmail.com>
+Build-Depends: debhelper (>= 9),
+               libc6-dev (>= 2.17),
+               libgtk-3-dev,
+Standards-Version: 3.9.7
+
+Package: com.github.santileortiz.iconoscope
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Icon viewer
+ View icons installed in your system and their properties.

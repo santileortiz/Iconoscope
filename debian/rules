@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+
+PACKAGENAME := $(shell awk 'NR==1{print $$1}' debian/changelog)
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	rm -f bin/*
+	dh_clean
+
+override_dh_auto_build:
+	./pymk.py iconoscope --mode release
+
+override_dh_auto_install:
+	./pymk.py install --destdir ${CURDIR}/debian/${PACKAGENAME}/
+
