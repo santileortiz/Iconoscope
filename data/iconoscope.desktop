@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Iconoscope
+Comment=See installed icons and their information
+Exec=com.github.santileortiz.iconoscope
+Icon=iconoscope
+Keywords=icons;themes;
+Terminal=false
+Type=Application
+Categories=Graphics;Utility;
