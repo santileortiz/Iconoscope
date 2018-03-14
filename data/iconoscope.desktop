@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Iconoscope
-Comment=See installed icons and their information
+Comment=View installed icons and their properties
 Exec=com.github.santileortiz.iconoscope
 Icon=iconoscope
 Keywords=icons;themes;
