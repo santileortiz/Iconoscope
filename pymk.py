@@ -2,14 +2,15 @@
 from mkpy.utility import *
 assert sys.version_info >= (3,2)
 
+RDNN_NAME = 'com.github.santileortiz.iconoscope'
 installation_info = {
-    'bin/iconoscope': 'usr/bin/com.github.santileortiz.iconoscope',
-    'data/iconoscope.desktop': 'usr/share/applications/com.github.santileortiz.iconoscope.desktop',
-    'data/appdata.xml': 'usr/share/metainfo/com.github.santileortiz.iconoscope.appdata.xml',
-    'data/128/iconoscope.svg': 'usr/share/icons/hicolor/128x128/apps/',
-    'data/64/iconoscope.svg': 'usr/share/icons/hicolor/64x64/apps/',
-    'data/48/iconoscope.svg': 'usr/share/icons/hicolor/48x48/apps/',
-    'data/32/iconoscope.svg': 'usr/share/icons/hicolor/32x32/apps/',
+    'bin/iconoscope': 'usr/bin/{RDNN_NAME}',
+    'data/iconoscope.desktop': 'usr/share/applications/{RDNN_NAME}.desktop',
+    'data/appdata.xml': 'usr/share/metainfo/{RDNN_NAME}.appdata.xml',
+    'data/128/iconoscope.svg': 'usr/share/icons/hicolor/128x128/apps/{RDNN_NAME}.svg',
+    'data/64/iconoscope.svg': 'usr/share/icons/hicolor/64x64/apps/{RDNN_NAME}.svg',
+    'data/48/iconoscope.svg': 'usr/share/icons/hicolor/48x48/apps/{RDNN_NAME}.svg',
+    'data/32/iconoscope.svg': 'usr/share/icons/hicolor/32x32/apps/{RDNN_NAME}.svg',
     }
 
 modes = {

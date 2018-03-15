@@ -10,6 +10,18 @@
     <p>View icons installed in your system and their properties.</p>
   </description>
 
+  <releases>
+      <release version="0.1.4" date="2018-3-15">
+          <description>
+              <p>Fix some requirements for AppCenter</p>
+              <ul>
+                  <li>Use RDNN naming for icons</li>
+                  <li>Add changelog to appdata.xml</li>
+              </ul>
+          </description>
+      </release>
+  </releases>
+
   <provides>
       <binary>com.github.santileortiz.iconoscope</binary>
   </provides>

@@ -2,7 +2,7 @@
 Name=Iconoscope
 Comment=View installed icons and their properties
 Exec=com.github.santileortiz.iconoscope
-Icon=iconoscope
+Icon=com.github.santileortiz.iconoscope
 Keywords=icons;themes;
 Terminal=false
 Type=Application
