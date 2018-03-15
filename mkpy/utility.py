@@ -66,7 +66,7 @@ def call_user_function(name, dry_run=False):
 def check_completions ():
     comp_path = pathlib.Path('/usr/share/bash-completion/completions/pymk.py')
     if not comp_path.exists():
-        warn ('Tab completions not installed:')
+        print ('Tab completions not installed:')
         print ('Use "sudo ./pymk.py --install_completions" to install them\n')
         return
     if comp_path.is_file() and not filecmp.cmp ('mkpy/pymk.py', str(comp_path)):
