@@ -1675,11 +1675,6 @@ enum alloc_opts {
     POOL_ZERO_INIT
 };
 
-// pom == pool or malloc
-#define pom_push_struct(pool, type) pom_push_size(pool, sizeof(type))
-#define pom_push_array(pool, n, type) pom_push_size(pool, (n)*sizeof(type))
-#define pom_push_size(pool, size) (pool==NULL? malloc(size) : mem_pool_push_size(pool,size))
-
 #define mem_pool_push_struct(pool, type) mem_pool_push_size(pool, sizeof(type))
 #define mem_pool_push_array(pool, n, type) mem_pool_push_size(pool, (n)*sizeof(type))
 #define mem_pool_push_size(pool, size) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED)
@@ -1820,6 +1815,29 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
     }
 }
 
+// pom == pool or malloc
+#define pom_push_struct(pool, type) pom_push_size(pool, sizeof(type))
+#define pom_push_array(pool, n, type) pom_push_size(pool, (n)*sizeof(type))
+#define pom_push_size(pool, size) (pool==NULL? malloc(size) : mem_pool_push_size(pool,size))
+
+static inline
+void* pom_strndup (mem_pool_t *pool, void *str, uint32_t str_len)
+{
+    char *res = (char*)pom_push_size (pool, str_len+1);
+    memcpy (res, str, str_len);
+    res[str_len] = '\0';
+    return res;
+}
+
+static inline
+void* pom_dup (mem_pool_t *pool, void *data, uint32_t size)
+{
+    void *res = pom_push_size (pool, size);
+    memcpy (res, data, size);
+    return res;
+}
+
+
 // Flatten an array of null terminated strings into a single string allocated
 // into _pool_ or heap.
 char* collapse_str_arr (char **arr, int n, mem_pool_t *pool)
@@ -1895,6 +1913,32 @@ void file_read (int file, void *pos,  ssize_t size)
     }
 }
 
+bool full_file_write (void *data, ssize_t size, char *path)
+{
+    bool failed = false;
+    char *dir_path = sh_expand (path, NULL);
+
+    int file = open (dir_path, O_WRONLY | O_CREAT, 0666);
+    if (file != -1) {
+        int bytes_written = 0;
+        do {
+            int status = write (file, data, size);
+            if (status == -1) {
+                printf ("Error writing %s: %s\n", path, strerror(errno));
+                failed = true;
+                break;
+            }
+            bytes_written += status;
+        } while (bytes_written != size);
+    } else {
+        printf ("Error opening %s: %s\n", path, strerror(errno));
+    }
+
+    close (file);
+    free (dir_path);
+    return failed;
+}
+
 char* full_file_read (mem_pool_t *pool, const char *path)
 {
     char *retval = NULL;
@@ -1905,16 +1949,21 @@ char* full_file_read (mem_pool_t *pool, const char *path)
         retval = (char*)pom_push_size (pool, st.st_size + 1);
 
         int file = open (dir_path, O_RDONLY);
-        int bytes_read = 0;
-        do {
-            int status = read (file, retval+bytes_read, st.st_size-bytes_read);
-            if (status == -1) {
-                printf ("Error reading %s: %s\n", path, strerror(errno));
-                break;
-            }
-            bytes_read += status;
-        } while (bytes_read != st.st_size);
-        retval[st.st_size] = '\0';
+        if (file != -1) {
+            int bytes_read = 0;
+            do {
+                int status = read (file, retval+bytes_read, st.st_size-bytes_read);
+                if (status == -1) {
+                    printf ("Error reading %s: %s\n", path, strerror(errno));
+                    break;
+                }
+                bytes_read += status;
+            } while (bytes_read != st.st_size);
+            retval[st.st_size] = '\0';
+            close (file);
+        } else {
+            printf ("Error opening %s: %s\n", path, strerror(errno));
+        }
     } else {
         printf ("Could not read %s: %s\n", path, strerror(errno));
     }
@@ -1966,6 +2015,23 @@ char* full_file_read_prefix (mem_pool_t *out_pool, const char *path, char **pref
     }
 
     mem_pool_destroy (&pool);
+    return retval;
+}
+
+bool path_exists (char *path)
+{
+    bool retval = true;
+    char *dir_path = sh_expand (path, NULL);
+
+    struct stat st;
+    int status;
+    if ((status = stat(dir_path, &st)) == -1) {
+        retval = false;
+        if (errno != ENOENT) {
+            printf ("Error checking existance of %s: %s\n", path, strerror(errno));
+        }
+    }
+    free (dir_path);
     return retval;
 }
 
@@ -2056,6 +2122,50 @@ char* get_extension (char *path)
 }
 
 #ifdef __CURL_CURL_H
+// Wrapper around curl to download a full file while blocking. There are two
+// macros that offer different ways of calling it, curl_download_file() receives
+// a URL and the name of a destination file. curl_download_file_progress() also
+// receives a callback function that can be used to monitor the progress of the
+// download.
+//
+// NOTE: I switched from cURL because my usecases were much more simple, the
+// replacement I'm using is below. Using cURL implied some issues with
+// portability. For more details read the following rant.
+//
+// RANT: CURL's packaging at least on Debian seems to be poorly done. These
+// issues happened when going from elementaryOS Loki to elementaryOS Juno, which
+// basically means going from Ubuntu Xenial to Ubuntu Bionic. There is a nasty
+// situation going on where an ABI breaking change in OpenSSL made it impossible
+// to have a binary that runs on old and new systems. Current systems now have
+// two packages libcurl3 and libcurl4 that conflict with each other so
+// installing one will remove the other. Meanwhile, application's executables
+// built in old systems require libcurl3 but the ones built in newer systems
+// require libcurl4. This happened because more than 10 years ago libcurl3 was
+// packaged to provide libcurl.so.4 and libcurl.so.3 was a symlink pointing to
+// libcurl.so.4 (because the package matainer didn't consider upstream's soname bump to be
+// an actual ABI break). On top of this, Debian versioned all symbols defined by
+// libcurl.so.4 as CURL_OPENSSL_3. Doing this caused applications built in this
+// system to link dynamically with libcurl.so.4, but require symbols with
+// version CURL_OPENSSL_3. This now causes problems because OpenSSL's change
+// caused another soname bump in libcurl, creating two different packages,
+// libcurl3 providing libcurl.so.4 with symbols versioned as CURL_OPENSSL_3, and
+// libcurl4 providing libcurl.so.4 too, but with symbols versioned as
+// CURL_OPENSSL_4 (providing the same file causes the conflict). This means that
+// binaries built in new systems link dynamically to libcurl.so.4 but expect
+// symbols with version CURL_OPENSSL_4, while binaries from previous systems
+// link to the same soname, but expect symbols versioned as CURL_OPENSSL_3. In
+// the end, this makes it hard to create an executable that works on old and new
+// systems. The sad thing is upstream curl does NOT use symbol versioning, this
+// is added by Debian's mantainers. The options are:
+//
+//      * Build different packages for each system (what I think Debian does).
+//      * Statically link curl (which .deb lintian forbids) now having to
+//        buid-depend on all curl's build dependencies.
+//      * Link against an upstream version of libcurl without symbol versioning.
+//      * Don't use curl at all.
+//
+//  - Santiago, March 2018
+
 #define DOWNLOAD_PROGRESS_CALLBACK(name) \
     int name(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow)
 typedef DOWNLOAD_PROGRESS_CALLBACK(download_progress_callback_t);
@@ -2110,6 +2220,40 @@ bool download_file_full (char *url, char *dest,
     return retval;
 }
 #endif /*__CURL_CURL_H*/
+
+#ifdef http_hpp
+// Wrapper around Mattias Gustavsson's single header library [1]. Here is the common
+// usecase of downloading some URL into a file, through HTTP. Note that this
+// does not work with HTTPS but that's part of what makes it so simple.
+//
+// [1] https://github.com/mattiasgustavsson/libs/blob/master/http.h
+bool download_file (const char *url, char *path)
+{
+    bool success = true;
+    http_t* request = http_get (url, NULL);
+    if (request)
+    {
+        http_status_t status = HTTP_STATUS_PENDING;
+        while (status == HTTP_STATUS_PENDING)
+        {
+            status = http_process (request);
+        }
+
+        if( status != HTTP_STATUS_FAILED )
+        {
+            full_file_write (request->response_data, request->response_size, path);
+        } else {
+            printf( "HTTP request failed (%d): %s.\n", request->status_code, request->reason_phrase );
+            success = false;
+        }
+
+        http_release( request );
+    } else {
+        success = false;
+    }
+    return success;
+}
+#endif
 
 ///////////////
 //

@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+from mkpy import utility as cfg
 from mkpy.utility import *
 assert sys.version_info >= (3,2)
 
@@ -12,6 +13,8 @@ installation_info = {
     'data/48/iconoscope.svg': 'usr/share/icons/hicolor/48x48/apps/{RDNN_NAME}.svg',
     'data/32/iconoscope.svg': 'usr/share/icons/hicolor/32x32/apps/{RDNN_NAME}.svg',
     }
+
+GTK_FLAGS = ex ('pkg-config --cflags --libs gtk+-3.0', ret_stdout=True, echo=False)
 
 modes = {
         'debug': '-g -Wall',
@@ -27,7 +30,7 @@ def default():
     call_user_function(target)
 
 def iconoscope ():
-    ex ('gcc {FLAGS} `pkg-config --cflags gtk+-3.0` -o bin/iconoscope iconoscope.c `pkg-config --libs gtk+-3.0` -lm')
+    ex ('gcc {FLAGS} -o bin/iconoscope iconoscope.c {GTK_FLAGS} -lm')
 
 def install ():
     dest_dir = get_cli_option ('--destdir', has_argument=True)
@@ -39,9 +42,11 @@ def install ():
                 ex ('gtk-update-icon-cache-3.0 /usr/share/icons/hicolor/')
                 break;
 
+cfg.builtin_completions = ['--get_run_deps', '--get_build_deps']
 if __name__ == "__main__":
-    if get_cli_option ('--get_deps_pkgs'):
-        get_target_dep_pkgs ()
-        exit ()
+    # Everything above this line will be executed for each TAB press.
+    # If --get_completions is set, handle_tab_complete() calls exit().
+    handle_tab_complete ()
+
     pymk_default()
 
