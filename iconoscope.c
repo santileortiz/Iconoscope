@@ -127,6 +127,19 @@ bool is_end_of_section (char *c)
     return *c == '[' || *c == '\0';
 }
 
+bool read_dir (DIR *dirp, struct dirent **res)
+{
+    errno = 0;
+    *res = readdir (dirp);
+    if (*res == NULL) {
+        if (errno != 0) {
+            printf ("Error while reading directory: %s", strerror (errno));
+        }
+        return false;
+    }
+    return true;
+}
+
 bool icon_lookup (mem_pool_t *pool, char *dir, const char *icon_name, char **found_file)
 {
     struct stat st;
@@ -141,16 +154,16 @@ bool icon_lookup (mem_pool_t *pool, char *dir, const char *icon_name, char **fou
     char *ext_priority[] = {"svg", "png", "xpm"};
     uint32_t ext_id = ARRAY_SIZE(ext_priority);
     DIR *d = opendir (dir);
-    struct dirent entry_info, *info_res;
-    while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
+    struct dirent *entry_info;
+    while (read_dir (d, &entry_info)) {
         uint32_t name_len = strlen(icon_name);
-        uint32_t entry_len = strlen(entry_info.d_name);
-        int cmp = strncmp (icon_name, entry_info.d_name, MIN (name_len, entry_len));
+        uint32_t entry_len = strlen(entry_info->d_name);
+        int cmp = strncmp (icon_name, entry_info->d_name, MIN (name_len, entry_len));
         if (cmp == 0) {
             if (name_len == entry_len ||
-                (name_len < entry_len && entry_info.d_name[name_len] == '.')) {
+                (name_len < entry_len && entry_info->d_name[name_len] == '.')) {
 
-                char *entry_ext = get_extension (entry_info.d_name);
+                char *entry_ext = get_extension (entry_info->d_name);
                 int i;
                 for (i=0; i<ARRAY_SIZE (ext_priority); i++) {
                     if (strcmp (ext_priority[i], entry_ext) == 0 &&
@@ -197,11 +210,11 @@ bool file_lookup (char *dir, char *file)
 
     bool res = false;
     DIR *d = opendir (dir);
-    struct dirent entry_info, *info_res;
-    while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
+    struct dirent *entry_info;
+    while (read_dir (d, &entry_info)) {
         uint32_t file_len = strlen(file);
-        uint32_t entry_len = strlen(entry_info.d_name);
-        int cmp = strncmp (file, entry_info.d_name, MIN (file_len, entry_len));
+        uint32_t entry_len = strlen(entry_info->d_name);
+        int cmp = strncmp (file, entry_info->d_name, MIN (file_len, entry_len));
         if (cmp == 0) {
             if (file_len == entry_len) {
                 res = true;
@@ -307,20 +320,20 @@ void get_all_icon_themes (mem_pool_t *pool, struct icon_theme_t **themes, uint32
         }
 
         DIR *d = opendir (curr_search_path);
-        struct dirent entry_info, *info_res;
-        while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
-            if (strcmp ("default", entry_info.d_name) == 0) {
+        struct dirent *entry_info;
+        while (read_dir (d, &entry_info)) {
+            if (strcmp ("default", entry_info->d_name) == 0) {
                 continue;
-            } else if (entry_info.d_name[0] != '.') {
-                string_t theme_dir = str_new (entry_info.d_name);
+            } else if (entry_info->d_name[0] != '.') {
+                string_t theme_dir = str_new (entry_info->d_name);
                 str_put (&path_str, path_len, &theme_dir);
 
                 if (stat(str_data(&path_str), &st) == 0 && S_ISDIR(st.st_mode) &&
                     file_lookup (str_data(&path_str), "index.theme")) {
 
                     struct icon_theme_t theme;
-                    theme.dir_name = pom_push_size (pool, strlen(entry_info.d_name)+1);
-                    memcpy (theme.dir_name, entry_info.d_name, strlen(entry_info.d_name)+1);
+                    theme.dir_name = pom_push_size (pool, strlen(entry_info->d_name)+1);
+                    memcpy (theme.dir_name, entry_info->d_name, strlen(entry_info->d_name)+1);
 
                     str_cat_c (&path_str, "/index.theme");
                     theme.index_file = full_file_read (pool, str_data(&path_str));
@@ -391,12 +404,12 @@ void get_all_icon_themes (mem_pool_t *pool, struct icon_theme_t **themes, uint32
         }
 
         DIR *d = opendir (str_data(&path_str));
-        struct dirent entry_info, *info_res;
-        while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
-            str_put_c (&path_str, path_len, entry_info.d_name);
+        struct dirent *entry_info;
+        while (read_dir (d, &entry_info)) {
+            str_put_c (&path_str, path_len, entry_info->d_name);
 
             if (stat(str_data(&path_str), &st) == 0 && S_ISREG(st.st_mode)) {
-                char* ext = get_extension (entry_info.d_name);
+                char* ext = get_extension (entry_info->d_name);
                 if (strcmp(ext, "svg") || strcmp(ext, "png") || strcmp(ext, "xpm")) {
                     uint32_t res_len = strlen (path[i]) + 1;
                     found_dirs[num_found] = (char*)pom_push_size (pool, res_len);
@@ -484,12 +497,12 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
               }
 
               DIR *d = opendir (str_data(&theme_dir));
-              struct dirent entry_info, *info_res;
-              while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
-                  if (entry_info.d_name[0] != '.') {
-                      str_put_c (&theme_dir, curr_dir_len, entry_info.d_name);
+              struct dirent *entry_info;
+              while (read_dir (d, &entry_info)) {
+                  if (entry_info->d_name[0] != '.') {
+                      str_put_c (&theme_dir, curr_dir_len, entry_info->d_name);
                       if (stat(str_data(&theme_dir), &st) == 0 && S_ISREG(st.st_mode)) {
-                          char *icon_name = remove_extension (&local_pool, entry_info.d_name);
+                          char *icon_name = remove_extension (&local_pool, entry_info->d_name);
                           if (icon_name != NULL) {
                               g_hash_table_insert (ht, icon_name, NULL);
                           }
@@ -511,14 +524,14 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
         uint32_t path_len = str_len (&path_str);
 
         DIR *d = opendir (str_data(&path_str));
-        struct dirent entry_info, *info_res;
-        while (readdir_r (d, &entry_info, &info_res) == 0 && info_res != NULL) {
+        struct dirent *entry_info;
+        while (read_dir (d, &entry_info)) {
             struct stat st;
-            str_put_c (&path_str, path_len, entry_info.d_name);
+            str_put_c (&path_str, path_len, entry_info->d_name);
 
             if (stat(str_data(&path_str), &st) == 0 && S_ISREG(st.st_mode)) {
-                char* ext = get_extension (entry_info.d_name);
-                char *icon_name = remove_extension (&local_pool, entry_info.d_name);
+                char* ext = get_extension (entry_info->d_name);
+                char *icon_name = remove_extension (&local_pool, entry_info->d_name);
                 if (strcmp(ext, "svg") || strcmp(ext, "png") || strcmp(ext, "xpm")) {
                     g_hash_table_insert (ht, icon_name, NULL);
                 }
