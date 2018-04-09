@@ -542,7 +542,7 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
       }
   }
 
-  GList *res;
+  GList *res = NULL;
   g_hash_table_foreach (ht, copy_key_into_list, &res);
   mem_pool_destroy (&local_pool);
 
@@ -795,7 +795,7 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
 
     bool first = true;
     uint32_t i = 0;
-    GList *l;
+    GList *l = NULL;
     for (l = icon_names; l != NULL; l = l->next)
     {
         // NOTE: Ignore symbolic icons for now
