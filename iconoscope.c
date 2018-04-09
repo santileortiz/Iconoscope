@@ -782,7 +782,7 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     gtk_container_remove (GTK_CONTAINER(parent), icon_list);
 
     icon_list = gtk_list_box_new ();
-    add_custom_css (icon_list, ".list { background-color: transparent; }");
+    add_custom_css (icon_list, ".list, list { background-color: transparent; }");
     gtk_widget_set_vexpand (icon_list, TRUE);
     gtk_widget_set_hexpand (icon_list, TRUE);
     g_signal_connect (G_OBJECT(icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
@@ -881,7 +881,7 @@ int main(int argc, char *argv[])
     gtk_container_add (GTK_CONTAINER (scrolled_icon_list), icon_list);
 
     search_entry = gtk_search_entry_new ();
-    add_custom_css (search_entry, ".entry { border-radius: 13px; }");
+    add_custom_css (search_entry, ".entry, entry { border-radius: 13px; }");
     g_signal_connect (G_OBJECT(search_entry), "changed", G_CALLBACK (on_search_changed), NULL);
 
     GtkWidget *sidebar = gtk_grid_new ();
