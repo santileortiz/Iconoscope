@@ -166,13 +166,13 @@ typedef union {
 #pragma pack(pop)
 
 #define str_is_small(string) (!((string)->len_small&0x01))
-#define str_len(string) (str_is_small(string)?(string)->len_small/2-1:(string)->len)
+#define str_len(string) (str_is_small(string)?(string)->len_small/2:(string)->len)
 #define str_data(string) (str_is_small(string)?(string)->str_small:(string)->str)
 
 static inline
 char* str_small_alloc (string_t *str, size_t len)
 {
-    str->len_small = 2*(len+1); // Guarantee LSB == 0
+    str->len_small = 2*len; // Guarantee LSB == 0
     return str->str_small;
 }
 
@@ -422,47 +422,89 @@ char str_last (string_t *str)
 // PARSING UTILITIES
 //
 // These are some small functions useful when parsing text files
+//
+// FIXME: (API BREAK) Applications using consume_line() and consume_spaces()
+// will break!, to make them work again copy the deprecated code into the
+// application.
+//
+// Even thought this seemed like a good idea for a simple parsing API that does
+// not require any state but a pointer to the current position, turns out it's
+// impossible to program it in a way that allows to be used by people that want
+// const AND non-const strings.
+//
+// If people are using a const string we must declare the function as:
+//
+//      const char* consume_line (const char *c);
+//
+// This will keep the constness of the original string. But, if people are using
+// a non const string even though it will be casted to const without problem, we
+// will still return a const pointer that will be most likely assigned to the
+// same non const variable sent in the first place, here the const qualifier
+// will be discarded and the compiler will complain. There is no way to say "if
+// we are sent const return const, if it's non-const return non-const". Maybe in
+// C++ with templates this can be done.
+//
+// Because we want to cause the least ammount of friction when using this
+// library, making the user think about constdness defeats this purpose, so
+// better just not use this.
+//
+// We could try to declare functions as:
+//
+//      bool consume_line (const char **c);
+//
+// But in C, char **c won't cast implicitly to const char **c. Also this has the
+// problem that now it will unconditionally update c, wheras before the user had
+// the choice either to update it immediately, or store it in a variable and
+// update it afterwards, if necessary.
+//
+// Maybe what's needed is a proper scanner API that stores state inside a struct
+// with more clear semantics. I'm still experimenting with different
+// alternatives.
+
+//static inline
+//char* consume_line (char *c)
+//{
+//    while (*c && *c != '\n') {
+//           c++;
+//    }
+//
+//    if (*c) {
+//        c++;
+//    }
+//
+//    return c;
+//}
+//
+//static inline
+//char* consume_spaces (char *c)
+//{
+//    while (is_space(c)) {
+//           c++;
+//    }
+//    return c;
+//}
 
 static inline
-char *consume_line (char *c)
-{
-    while (*c && *c != '\n') {
-           c++;
-    }
-
-    if (*c) {
-        c++;
-    }
-
-    return c;
-}
-
-static inline
-bool is_space (char *c)
+bool is_space (const char *c)
 {
     return *c == ' ' ||  *c == '\t';
 }
 
 static inline
-char *consume_spaces (char *c)
+bool is_end_of_line_or_file (const char *c)
 {
     while (is_space(c)) {
            c++;
     }
-    return c;
-}
-
-static inline
-bool is_end_of_line_or_file (char *c)
-{
-    c = consume_spaces (c);
     return *c == '\n' || *c == '\0';
 }
 
 static inline
-bool is_end_of_line (char *c)
+bool is_end_of_line (const char *c)
 {
-    c = consume_spaces (c);
+    while (is_space(c)) {
+           c++;
+    }
     return *c == '\n';
 }
 
@@ -1253,7 +1295,7 @@ void swap_n_bytes (void *a, void*b, uint32_t n)
 #define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                     \
 void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
 {                                                               \
-    if (n==1) {                                                 \
+    if (n<=1) {                                                 \
         return;                                                 \
     } else if (n == 2) {                                        \
         TYPE *a = &arr[1];                                      \
@@ -1680,6 +1722,8 @@ enum alloc_opts {
 #define mem_pool_push_size(pool, size) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED)
 void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts opts)
 {
+    if (size == 0) return NULL;
+
     if (pool->used + size >= pool->size) {
         pool->num_bins++;
         int new_bin_size = MAX (MAX (MEM_POOL_MIN_BIN_SIZE, pool->min_bin_size), size);
@@ -1821,7 +1865,7 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
 #define pom_push_size(pool, size) (pool==NULL? malloc(size) : mem_pool_push_size(pool,size))
 
 static inline
-void* pom_strndup (mem_pool_t *pool, void *str, uint32_t str_len)
+char* pom_strndup (mem_pool_t *pool, const char *str, uint32_t str_len)
 {
     char *res = (char*)pom_push_size (pool, str_len+1);
     memcpy (res, str, str_len);
@@ -1913,12 +1957,16 @@ void file_read (int file, void *pos,  ssize_t size)
     }
 }
 
-bool full_file_write (void *data, ssize_t size, char *path)
+// NOTE: If path does not exist, it will be created. If it does, it will be
+// overwritten.
+bool full_file_write (const void *data, ssize_t size, const char *path)
 {
     bool failed = false;
     char *dir_path = sh_expand (path, NULL);
 
-    int file = open (dir_path, O_WRONLY | O_CREAT, 0666);
+    // TODO: If writing fails, we will leave a blank file behind. We should make
+    // a backup in case things go wrong.
+    int file = open (dir_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (file != -1) {
         int bytes_written = 0;
         do {
@@ -1930,42 +1978,69 @@ bool full_file_write (void *data, ssize_t size, char *path)
             }
             bytes_written += status;
         } while (bytes_written != size);
+        close (file);
+
     } else {
-        printf ("Error opening %s: %s\n", path, strerror(errno));
+        failed = true;
+        if (errno != EACCES) {
+            // If we don't have permissions fail silently so that the caller can
+            // detect this with errno and maybe retry.
+            printf ("Error opening %s: %s\n", path, strerror(errno));
+        }
     }
 
-    close (file);
     free (dir_path);
     return failed;
 }
 
 char* full_file_read (mem_pool_t *pool, const char *path)
 {
-    char *retval = NULL;
+    bool success = true;
     char *dir_path = sh_expand (path, NULL);
 
+    mem_pool_temp_marker_t mrk;
+    if (pool != NULL) {
+        mrk = mem_pool_begin_temporary_memory (pool);
+    }
+
+    char *loaded_data = NULL;
     struct stat st;
     if (stat(dir_path, &st) == 0) {
-        retval = (char*)pom_push_size (pool, st.st_size + 1);
+        loaded_data = (char*)pom_push_size (pool, st.st_size + 1);
 
         int file = open (dir_path, O_RDONLY);
         if (file != -1) {
             int bytes_read = 0;
             do {
-                int status = read (file, retval+bytes_read, st.st_size-bytes_read);
+                int status = read (file, loaded_data+bytes_read, st.st_size-bytes_read);
                 if (status == -1) {
+                    success = false;
                     printf ("Error reading %s: %s\n", path, strerror(errno));
                     break;
                 }
                 bytes_read += status;
             } while (bytes_read != st.st_size);
-            retval[st.st_size] = '\0';
+            loaded_data[st.st_size] = '\0';
             close (file);
         } else {
+            success = false;
             printf ("Error opening %s: %s\n", path, strerror(errno));
         }
+
     } else {
+        success = false;
         printf ("Could not read %s: %s\n", path, strerror(errno));
+    }
+
+    char *retval = NULL;
+    if (success) {
+        retval = loaded_data;
+    } else if (loaded_data != NULL) {
+        if (pool != NULL) {
+            mem_pool_end_temporary_memory (mrk);
+        } else {
+            free (loaded_data);
+        }
     }
 
     free (dir_path);
@@ -1975,7 +2050,6 @@ char* full_file_read (mem_pool_t *pool, const char *path)
 char* full_file_read_prefix (mem_pool_t *out_pool, const char *path, char **prefix, int len)
 {
     mem_pool_t pool = {0};
-    char *retval = NULL;
     string_t pfx_s = {0};
     string_t path_s = str_new (path);
     char *dir_path = sh_expand (path, &pool);
@@ -1996,22 +2070,42 @@ char* full_file_read_prefix (mem_pool_t *out_pool, const char *path, char **pref
     str_free (&pfx_s);
     str_free (&path_s);
 
+    mem_pool_temp_marker_t mrk;
+    if (out_pool != NULL) {
+        mrk = mem_pool_begin_temporary_memory (out_pool);
+    }
+
+    bool success = true;
+    char *loaded_data = NULL;
     if (status == 0) {
-        retval = (char*)pom_push_size (out_pool, st.st_size + 1);
+        loaded_data = (char*)pom_push_size (out_pool, st.st_size + 1);
 
         int file = open (dir_path, O_RDONLY);
         int bytes_read = 0;
         do {
-            int status = read (file, retval+bytes_read, st.st_size-bytes_read);
+            int status = read (file, loaded_data+bytes_read, st.st_size-bytes_read);
             if (status == -1) {
+                success = false;
                 printf ("Error reading %s: %s\n", path, strerror(errno));
                 break;
             }
             bytes_read += status;
         } while (bytes_read != st.st_size);
-        retval[st.st_size] = '\0';
+        loaded_data[st.st_size] = '\0';
     } else {
+        success = false;
         printf ("Could not locate %s in any folder.\n", path);
+    }
+
+    char *retval = NULL;
+    if (success) {
+        retval = loaded_data;
+    } else if (loaded_data != NULL) {
+        if (out_pool != NULL) {
+            mem_pool_end_temporary_memory (mrk);
+        } else {
+            free (loaded_data);
+        }
     }
 
     mem_pool_destroy (&pool);
@@ -2056,6 +2150,54 @@ bool ensure_dir_exists (char *path)
 
     free (dir_path);
     return retval;
+}
+
+// Checks if path exists (either as a file or directory). If it doesn't it tries
+// to create all directories required for it to exist. If path ends in / then
+// all components are checked, otherwise the last part after / is assumed to be
+// a filename and is not created as a directory.
+bool ensure_path_exists (const char *path)
+{
+    bool success = true;
+    char *dir_path = sh_expand (path, NULL);
+
+    char *c = dir_path;
+    if (*c == '/') {
+        c++;
+    }
+
+    struct stat st;
+    if (stat(dir_path, &st) == -1) {
+        if (errno == ENOENT) {
+            while (*c && success) {
+                while (*c && *c != '/') {
+                    c++;
+                }
+
+                if (*c != '\0') {
+                    *c = '\0';
+                    if (stat(dir_path, &st) == -1 && errno == ENOENT) {
+                        if (mkdir (dir_path, 0777) == -1) {
+                            success = false;
+                            printf ("Error creating %s: %s\n", dir_path, strerror (errno));
+                        }
+                    }
+
+                    *c = '/';
+                    c++;
+                }
+            }
+        } else {
+            success = false;
+            printf ("Error ensuring path for %s: %s\n", path, strerror(errno));
+        }
+    } else {
+        // Path exists. Maybe check if it's the same type as on path, either
+        // file or directory?.
+    }
+
+    free (dir_path);
+    return success;
 }
 
 //////////////////////////////

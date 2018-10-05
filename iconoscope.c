@@ -3,6 +3,29 @@
 
 #include "common.h"
 
+static inline
+char* consume_line (char *c)
+{
+    while (*c && *c != '\n') {
+           c++;
+    }
+
+    if (*c) {
+        c++;
+    }
+
+    return c;
+}
+
+static inline
+char* consume_spaces (char *c)
+{
+    while (is_space(c)) {
+           c++;
+    }
+    return c;
+}
+
 void add_custom_css (GtkWidget *widget, gchar *css_data)
 {
     GtkStyleContext *style_context = gtk_widget_get_style_context (widget);
