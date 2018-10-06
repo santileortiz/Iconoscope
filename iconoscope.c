@@ -573,27 +573,16 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
   return res;
 }
 
-struct icon_file_t {
-    char *fname;
-    bool scalable;
-    uint32_t size;
-    uint32_t scale;
-};
-
-struct icon_info_t {
-    mem_pool_t pool;
-    char *icon_name;
-    uint32_t num_files;
-    struct icon_file_t *files;
-};
-
-struct icon_theme_t *selected_theme = NULL;
-struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_name)
+void icon_view_compute (mem_pool_t *pool,
+                        struct icon_theme_t *theme, const char *icon_name,
+                        struct icon_view_t *icon_view)
 {
-    struct icon_info_t res = {0};
-    GArray *files = g_array_new (FALSE, FALSE, sizeof(struct icon_file_t));
+    *icon_view = ZERO_INIT (struct icon_view_t);
+    icon_view->icon_name = pom_strndup (pool, icon_name, strlen(icon_name));
+    struct icon_image_t **last_image = &icon_view->images;
 
     if (theme->index_file != NULL) {
+        bool found_image = false;
         int i;
         for (i = 0; i < theme->num_dirs; i++) {
             string_t path = str_new (theme->dirs[i]);
@@ -615,44 +604,55 @@ struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_n
                 str_put (&path, path_len, &dir);
 
                 char *icon_path;
-                if (icon_lookup (&res.pool, str_data (&path), icon_name, &icon_path)) {
+                if (icon_lookup (pool, str_data (&path), icon_name, &icon_path)) {
                     // TODO: Maybe get this information before looking up the directory
                     // and conditionally call icon_lookup() depending on the information
                     // we get.
-                    struct icon_file_t f;
-                    f.scale = 1;
+
+                    struct icon_image_t img = ZERO_INIT(struct icon_image_t);
+                    mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (pool);
+                    img.scale = 1;
+                    img.path = pom_strndup (pool, icon_path, strlen(icon_path));
+
+                    // NOTE: We say an image is scalable if dir contains the
+                    // substring "scalable" as this is what developers seem to
+                    // use. The index file may disagree, and Gtk for example
+                    // makes any .svg icon 'scalable' no matter what the index
+                    // file or dir says.
+                    img.is_scalable = strstr (str_data(&dir), "scalable") != NULL ? true : false;
+
                     while ((c = consume_ignored_lines (c)) && !is_end_of_section(c)) {
                         char *key, *value;
                         uint32_t key_len, value_len;
                         c = seek_next_key_value (c, &key, &key_len, &value, &value_len);
                         if (strncmp (key, "Size", MIN(4, key_len)) == 0) {
-                            sscanf (value, "%"SCNu32, &f.size);
+                            sscanf (value, "%"SCNu32, &img.size);
 
                         } else if (strncmp (key, "Scale", MIN(5, key_len)) == 0) {
-                            sscanf (value, "%"SCNu32, &f.scale);
+                            sscanf (value, "%"SCNu32, &img.scale);
 
+                        } else if (strncmp (key, "Type", MIN(4, key_len)) == 0) {
+                            img.type = pom_strndup (pool, value, value_len);
                         }
-
-                        // NOTE: We now ignore the Scalable type information
-                        // from the directory because it seems meaningless with
-                        // respect to what users do. Instead we should display
-                        // this only as information of the directory.
-                        //
-                        //else if (strncmp (key, "Type", MIN(4, key_len)) == 0 &&
-                        //           strncmp (value, "Scalable", MIN(8, value_len)) == 0) {
-                        //    f.scalable = true;
-                        //    scalable_dir = true;
-                        //}
                     }
 
-                    f.scalable = false;
-                    if (strstr (str_data(&dir), "scalable") != NULL) {
-                        f.scalable = true;
-                    }
+                    // Create the icon_image_t structure inside pool.
+                    // TODO: Currently we ignore icons with scales other than 1
+                    if (img.scale == 1) {
+                        found_image = true;
 
-                    if (f.scale == 1) {
-                        f.fname = icon_path;
-                        g_array_append_val (files, f);
+                        struct icon_image_t *new_img =
+                            mem_pool_push_size (pool, sizeof(struct icon_image_t));
+                        *new_img = img;
+
+                        // Add the new image at the end of the image linked list
+                        *last_image = new_img;
+                        last_image = &new_img->next;
+
+                    } else {
+                        // If we didn't create an icon_image_t discard
+                        // everything we allocated inside pool.
+                        mem_pool_end_temporary_memory (mrkr);
                     }
 
                 } else {
@@ -662,13 +662,11 @@ struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_n
                 str_free (&dir);
             }
 
-            if (files->len > 0) {
-                // If we found something in a search path then stop looking in the
-                // other ones.
-                break;
-            }
-
             str_free (&path);
+
+            // If we found something in a search path then stop looking in the
+            // other ones.
+            if (found_image) break;
         }
 
     } else {
@@ -680,27 +678,53 @@ struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_n
             }
 
             char *icon_path;
-            if (icon_lookup (&res.pool, str_data (&path), icon_name, &icon_path)) {
-                struct icon_file_t f;
-                f.scale = 1;
-                f.scalable = false;
-                f.fname = icon_path;
-                g_array_append_val (files, f);
+            if (icon_lookup (pool, str_data (&path), icon_name, &icon_path)) {
+                struct icon_image_t *new_img =
+                    mem_pool_push_size (pool, sizeof(struct icon_image_t));
+                *new_img = ZERO_INIT(struct icon_image_t);
+                new_img->path = pom_strndup(pool, icon_path, strlen(icon_path));
+                new_img->scale = 1;
+
+                // Add the new image at the end of the image linked list
+                *last_image = new_img;
+                last_image = &new_img->next;
             }
 
             str_free (&path);
         }
     }
 
-    res.num_files = files->len;
-    res.files = (struct icon_file_t*)mem_pool_push_size (&res.pool, sizeof(struct icon_file_t)*files->len);
-    memcpy (res.files, files->data, sizeof(struct icon_file_t)*files->len);
+    // Compute the remaining fields based on the ones found above
+    struct icon_image_t *img = icon_view->images;
+    while (img != NULL) {
+        // Compute label for the image
+        // NOTE: If it's the theme that contains unthemed icons. Leave the
+        // label as NULL.
+        img->label = NULL;
+        if (theme->dir_name != NULL) {
+            img->label = mem_pool_push_size (pool, sizeof(char)*16);
+            if (img->is_scalable) {
+                sprintf (img->label, "Scalable");
+            } else {
+                sprintf (img->label, "%d", img->size);
+            }
+        }
 
-    g_array_free (files, TRUE);
+        // Create a GtkImage for the found image
+        img->image = gtk_image_new_from_file (img->path);
+        gtk_widget_set_valign (img->image, GTK_ALIGN_END);
 
-    return res;
+        // Find the size of the created image
+        GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(img->image));
+        img->width = gdk_pixbuf_get_width(pixbuf);
+        img->height = gdk_pixbuf_get_height(pixbuf);
+        gtk_widget_set_size_request (img->image, img->width, img->height);
+
+        img = img->next;
+    }
 }
 
+struct icon_theme_t *selected_theme = NULL;
 GtkWidget *icon_view_widget = NULL;
 mem_pool_t icon_view_pool;
 struct icon_view_t icon_view;
@@ -712,45 +736,13 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     }
 
     GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
-    const char * icon_name = gtk_label_get_text (GTK_LABEL(row_label));
+    const char *icon_name = gtk_label_get_text (GTK_LABEL(row_label));
 
     // Update data in the icon_view_t structure
-    {
-        mem_pool_destroy (&icon_view_pool);
-        icon_view_pool = ZERO_INIT(mem_pool_t);
-
-        struct icon_info_t icon_info = get_icon_info (selected_theme, icon_name);
-        icon_view.icon_name = pom_strndup (&icon_view_pool, icon_name, strlen(icon_name));
-        icon_view.images = mem_pool_push_size (&icon_view_pool, sizeof(struct icon_image_t)*icon_info.num_files);
-        icon_view.num_images = icon_info.num_files;
-
-        int i;
-        for (i=0; i < icon_info.num_files; i++) {
-            struct icon_file_t *f = &icon_info.files[i];
-
-            struct icon_image_t *image = icon_view.images + i;
-
-            image->image = gtk_image_new_from_file (f->fname);
-            gtk_widget_set_valign (image->image, GTK_ALIGN_END);
-
-            GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(image->image));
-            image->width = gdk_pixbuf_get_width(pixbuf);
-            image->height = gdk_pixbuf_get_height(pixbuf);
-            gtk_widget_set_size_request (image->image, image->width, image->height);
-
-            // NOTE: If it's the theme that contains unthemed icons. Leave the
-            // label as NULL.
-            image->label = NULL;
-            if (selected_theme->dir_name != NULL) {
-                image->label = mem_pool_push_size (&icon_view_pool, sizeof(char)*16);
-                if (f->scalable) {
-                    sprintf (image->label, "Scalable");
-                } else {
-                    sprintf (image->label, "%d", f->size);
-                }
-            }
-        }
-    }
+    mem_pool_destroy (&icon_view_pool);
+    icon_view_pool = ZERO_INIT(mem_pool_t);
+    icon_view = ZERO_INIT(struct icon_view_t);
+    icon_view_compute (&icon_view_pool, selected_theme, icon_name, &icon_view);
 
     draw_icon_view (&icon_view_widget, &icon_view);
 }

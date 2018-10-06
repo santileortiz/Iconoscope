@@ -5,22 +5,24 @@
 struct icon_image_t {
     GtkWidget *image;
     int width, height;
-    char *label;
+    char *label; // can be NULL
 
+    // Information found in the index file
     char *path;
-    char* db_size;
-    //char* scale;
-    //bool is_scalable;
+    int size;
+    int scale;
+    char* type; // can be NULL
+    bool is_scalable; // True if directory in index file contains "scalable"
+
+    struct icon_image_t *next;
 };
 
 struct icon_view_t {
     char *icon_name;
 
     struct icon_image_t *images;
-    int num_images;
 
-    //struct icon_data_t *symbolic_icons;
-    //int num_symbolic_icons;
+    //struct icon_image_t *symbolic_icons;
 
     //int num_other_themes;
     //char **other_themes;
@@ -36,10 +38,9 @@ void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
     gtk_grid_set_row_spacing (GTK_GRID(wdgt), 6);
     gtk_grid_set_column_spacing (GTK_GRID(wdgt), 12);
 
-    int i;
-    for (i=0; i < icon_view->num_images; i++) {
-        struct icon_image_t *img = &icon_view->images[i];
-
+    int i = 0;
+    struct icon_image_t *img = icon_view->images;
+    while (img != NULL) {
         int img_x_idx, img_y_idx;
         if (img->width/img->height > 1) {
             // NOTE: At least one package (aptdaemon-data) provides animated
@@ -60,6 +61,9 @@ void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
             gtk_label_set_justify (GTK_LABEL(label), GTK_JUSTIFY_CENTER);
             gtk_grid_attach (GTK_GRID(wdgt), label, img_x_idx, img_y_idx + 1, 1, 1);
         }
+
+        i++;
+        img = img->next;
     }
 
     gtk_widget_show_all(wdgt);
