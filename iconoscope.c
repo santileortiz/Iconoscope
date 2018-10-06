@@ -2,6 +2,7 @@
 #include <gtk/gtk.h>
 
 #include "common.h"
+#include "icon_view.c"
 
 static inline
 char* consume_line (char *c)
@@ -700,9 +701,6 @@ struct icon_info_t get_icon_info (struct icon_theme_t *theme, const char *icon_n
     return res;
 }
 
-// TODO: Move this to the top of the file
-#include "icon_view.c"
-
 GtkWidget *icon_view_widget = NULL;
 mem_pool_t icon_view_pool;
 struct icon_view_t icon_view;
@@ -715,7 +713,44 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
 
     GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
     const char * icon_name = gtk_label_get_text (GTK_LABEL(row_label));
-    icon_view.name = pom_strndup (&icon_view_pool, icon_name, strlen(icon_name));
+
+    // Update data in the icon_view_t structure
+    {
+        mem_pool_destroy (&icon_view_pool);
+        icon_view_pool = ZERO_INIT(mem_pool_t);
+
+        struct icon_info_t icon_info = get_icon_info (selected_theme, icon_name);
+        icon_view.icon_name = pom_strndup (&icon_view_pool, icon_name, strlen(icon_name));
+        icon_view.images = mem_pool_push_size (&icon_view_pool, sizeof(struct icon_image_t)*icon_info.num_files);
+        icon_view.num_images = icon_info.num_files;
+
+        int i;
+        for (i=0; i < icon_info.num_files; i++) {
+            struct icon_file_t *f = &icon_info.files[i];
+
+            struct icon_image_t *image = icon_view.images + i;
+
+            image->image = gtk_image_new_from_file (f->fname);
+            gtk_widget_set_valign (image->image, GTK_ALIGN_END);
+
+            GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(image->image));
+            image->width = gdk_pixbuf_get_width(pixbuf);
+            image->height = gdk_pixbuf_get_height(pixbuf);
+            gtk_widget_set_size_request (image->image, image->width, image->height);
+
+            // NOTE: If it's the theme that contains unthemed icons. Leave the
+            // label as NULL.
+            image->label = NULL;
+            if (selected_theme->dir_name != NULL) {
+                image->label = mem_pool_push_size (&icon_view_pool, sizeof(char)*16);
+                if (f->scalable) {
+                    sprintf (image->label, "Scalable");
+                } else {
+                    sprintf (image->label, "%d", f->size);
+                }
+            }
+        }
+    }
 
     draw_icon_view (&icon_view_widget, &icon_view);
 }
