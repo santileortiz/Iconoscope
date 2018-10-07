@@ -2,6 +2,7 @@
 #include <gtk/gtk.h>
 
 #include "common.h"
+#include "gtk_utils.c"
 #include "icon_view.c"
 
 static inline
@@ -25,16 +26,6 @@ char* consume_spaces (char *c)
            c++;
     }
     return c;
-}
-
-void add_custom_css (GtkWidget *widget, gchar *css_data)
-{
-    GtkStyleContext *style_context = gtk_widget_get_style_context (widget);
-    GtkCssProvider *css_provider = gtk_css_provider_new ();
-    gtk_css_provider_load_from_data (css_provider, css_data, -1, NULL);
-    gtk_style_context_add_provider (style_context,
-                                    GTK_STYLE_PROVIDER(css_provider),
-                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
 // INI or desktop file format parser.
@@ -889,7 +880,7 @@ int main(int argc, char *argv[])
     gtk_grid_attach (GTK_GRID(sidebar), theme_selector, 0, 2, 1, 1);
 
     icon_view_widget = gtk_grid_new ();
-    GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+    GtkWidget *paned = fix_gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
     gtk_paned_pack2 (GTK_PANED(paned), icon_view_widget, TRUE, TRUE);
 
