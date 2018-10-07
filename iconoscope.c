@@ -701,6 +701,9 @@ void icon_view_compute (mem_pool_t *pool,
             }
         }
 
+        // Set back pointer into icon_view_t
+        img->view = icon_view;
+
         // Create a GtkImage for the found image
         img->image = gtk_image_new_from_file (img->path);
         gtk_widget_set_valign (img->image, GTK_ALIGN_END);
