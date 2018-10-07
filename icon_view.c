@@ -8,7 +8,9 @@ struct icon_image_t {
     char *label; // can be NULL
 
     // Information found in the index file
+    char *theme_dir;
     char *path;
+    char *full_path;
     int size;
     int scale;
     char* type; // can be NULL
@@ -67,7 +69,8 @@ GtkWidget* image_data_new (struct icon_image_t *img)
     gtk_grid_set_column_spacing (GTK_GRID(data), 12);
 
     if (img == NULL) {
-        data_dpy_append (data, "Path:", "-", 1);
+        data_dpy_append (data, "Theme path:", "-", 0);
+        data_dpy_append (data, "File path:", "-", 1);
         data_dpy_append (data, "Image Size:", "-", 2);
         data_dpy_append (data, "Size:", "-", 3);
         data_dpy_append (data, "Scale:", "-", 4);
@@ -75,7 +78,8 @@ GtkWidget* image_data_new (struct icon_image_t *img)
 
     } else {
         char buff[10];
-        data_dpy_append (data, "Path:", img->path, 1);
+        data_dpy_append (data, "Theme path:", img->theme_dir, 0);
+        data_dpy_append (data, "File path:", img->path, 1);
 
         snprintf (buff, ARRAY_SIZE(buff), "%d x %d", img->width, img->height);
         data_dpy_append (data, "Image Size:", buff, 2);

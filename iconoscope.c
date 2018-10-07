@@ -603,7 +603,10 @@ void icon_view_compute (mem_pool_t *pool,
                     struct icon_image_t img = ZERO_INIT(struct icon_image_t);
                     mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (pool);
                     img.scale = 1;
-                    img.path = pom_strndup (pool, icon_path, strlen(icon_path));
+                    int icon_path_len = strlen(icon_path);
+                    img.full_path = pom_strndup (pool, icon_path, icon_path_len);
+                    img.theme_dir = pom_strndup (pool, icon_path, path_len);
+                    img.path = pom_strndup (pool, icon_path + path_len, icon_path_len - path_len);
 
                     // NOTE: We say an image is scalable if dir contains the
                     // substring "scalable" as this is what developers seem to
@@ -705,7 +708,7 @@ void icon_view_compute (mem_pool_t *pool,
         img->view = icon_view;
 
         // Create a GtkImage for the found image
-        img->image = gtk_image_new_from_file (img->path);
+        img->image = gtk_image_new_from_file (img->full_path);
         gtk_widget_set_valign (img->image, GTK_ALIGN_END);
 
         // Find the size of the created image
