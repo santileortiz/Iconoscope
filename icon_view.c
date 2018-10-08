@@ -125,6 +125,7 @@ void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
         GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
     GtkWidget *all_icons = gtk_box_new (all_icons_or, 24);
 
+    struct icon_image_t *last_img;
     struct icon_image_t *img = icon_view->images;
     while (img != NULL) {
         GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
@@ -146,6 +147,9 @@ void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
 
         gtk_container_add (GTK_CONTAINER(all_icons), hitbox);
 
+        if(img->next == NULL) {
+            last_img = img;
+        }
         img = img->next;
     }
     gtk_grid_attach (GTK_GRID(icon_dpy), all_icons, 0, 0, 1, 1);
@@ -159,7 +163,7 @@ void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
     gtk_grid_attach (GTK_GRID(data_dpy), icon_name_label, 0, 0, 1, 1);
 
     GtkWidget *wrapper = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-    icon_view->image_data = image_data_new (img);
+    icon_view->image_data = image_data_new (last_img);
     gtk_container_add (GTK_CONTAINER(wrapper), icon_view->image_data);
     gtk_grid_attach (GTK_GRID(data_dpy), wrapper, 0, 1, 1, 1);
 
