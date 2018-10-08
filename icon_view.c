@@ -27,8 +27,8 @@ struct icon_view_t {
     char *icon_name;
 
     struct icon_image_t *images;
-
-    //struct icon_image_t *symbolic_icons;
+    struct icon_image_t *images_2;
+    struct icon_image_t *images_3;
 
     //int num_other_themes;
     //char **other_themes;

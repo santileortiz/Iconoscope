@@ -583,6 +583,8 @@ void icon_view_compute (mem_pool_t *pool,
     *icon_view = ZERO_INIT (struct icon_view_t);
     icon_view->icon_name = pom_strndup (pool, icon_name, strlen(icon_name));
     struct icon_image_t **last_image = &icon_view->images;
+    struct icon_image_t **last_image_2 = &icon_view->images_2;
+    struct icon_image_t **last_image_3 = &icon_view->images_3;
 
     if (theme->index_file != NULL) {
         bool found_image = false;
@@ -655,21 +657,22 @@ void icon_view_compute (mem_pool_t *pool,
                     }
 
                     // Create the icon_image_t structure inside pool.
-                    // TODO: Currently we ignore icons with scales other than 1
+                    struct icon_image_t *new_img =
+                        mem_pool_push_size (pool, sizeof(struct icon_image_t));
+                    *new_img = img;
+
+                    // Add the new image at the end of the corresponding linked list
                     if (img.scale == 1) {
-                        found_image = true;
-
-                        struct icon_image_t *new_img =
-                            mem_pool_push_size (pool, sizeof(struct icon_image_t));
-                        *new_img = img;
-
-                        // Add the new image at the end of the image linked list
                         *last_image = new_img;
                         last_image = &new_img->next;
-
+                    } else if (img.scale == 2) {
+                        *last_image_2 = new_img;
+                        last_image_2 = &new_img->next;
+                    } else if (img.scale == 3) {
+                        *last_image_3 = new_img;
+                        last_image_3 = &new_img->next;
                     } else {
-                        // If we didn't create an icon_image_t discard
-                        // everything we allocated inside pool.
+                        // TODO: Will we ever use x4 icons?
                         mem_pool_end_temporary_memory (mrkr);
                     }
 
