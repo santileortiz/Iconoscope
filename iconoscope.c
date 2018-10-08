@@ -606,6 +606,9 @@ void icon_view_compute (mem_pool_t *pool,
                     struct icon_image_t img = ZERO_INIT(struct icon_image_t);
                     mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (pool);
                     img.scale = 1;
+                    img.min_size = -1;
+                    img.max_size = -1;
+                    img.size = -1;
                     int icon_path_len = strlen(icon_path);
                     img.full_path = pom_strndup (pool, icon_path, icon_path_len);
                     img.theme_dir = pom_strndup (pool, icon_path, path_len);
@@ -623,13 +626,22 @@ void icon_view_compute (mem_pool_t *pool,
                         uint32_t key_len, value_len;
                         c = seek_next_key_value (c, &key, &key_len, &value, &value_len);
                         if (strncmp (key, "Size", MIN(4, key_len)) == 0) {
-                            sscanf (value, "%"SCNu32, &img.size);
+                            sscanf (value, "%"SCNi32, &img.size);
+
+                        } else if (strncmp (key, "MinSize", MIN(7, key_len)) == 0) {
+                            sscanf (value, "%"SCNi32, &img.min_size);
+
+                        } else if (strncmp (key, "MaxSize", MIN(7, key_len)) == 0) {
+                            sscanf (value, "%"SCNi32, &img.max_size);
 
                         } else if (strncmp (key, "Scale", MIN(5, key_len)) == 0) {
-                            sscanf (value, "%"SCNu32, &img.scale);
+                            sscanf (value, "%"SCNi32, &img.scale);
 
                         } else if (strncmp (key, "Type", MIN(4, key_len)) == 0) {
                             img.type = pom_strndup (pool, value, value_len);
+
+                        } else if (strncmp (key, "Context", MIN(7, key_len)) == 0) {
+                            img.context = pom_strndup (pool, value, value_len);
                         }
                     }
 

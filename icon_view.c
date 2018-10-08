@@ -12,8 +12,11 @@ struct icon_image_t {
     char *path;
     char *full_path;
     int size;
+    int min_size;
+    int max_size;
     int scale;
     char* type; // can be NULL
+    char* context; // can be NULL
     bool is_scalable; // True if directory in index file contains "scalable"
 
     struct icon_image_t *next;
@@ -33,8 +36,6 @@ struct icon_view_t {
     // UI Widgets
     GtkWidget *image_data;
 };
-
-
 
 GtkWidget *spaced_grid_new ()
 {
@@ -63,35 +64,52 @@ void data_dpy_append (GtkWidget *data, char *title, char *value, int id)
     gtk_grid_attach (GTK_GRID(data), value_label, 1, id, 1, 1);
 }
 
+static inline
+char* str_or_dash (char *str)
+{
+    if (str == NULL || *str == '\0') {
+        static char *str = "-";
+        return str;
+    } else {
+        return str;
+    }
+}
+
 GtkWidget* image_data_new (struct icon_image_t *img)
 {
     GtkWidget *data = gtk_grid_new ();
     gtk_grid_set_column_spacing (GTK_GRID(data), 12);
 
+    struct icon_image_t l_img;
     if (img == NULL) {
-        data_dpy_append (data, "Theme path:", "-", 0);
-        data_dpy_append (data, "File path:", "-", 1);
-        data_dpy_append (data, "Image Size:", "-", 2);
-        data_dpy_append (data, "Size:", "-", 3);
-        data_dpy_append (data, "Scale:", "-", 4);
-        data_dpy_append (data, "Type:", "-", 5);
-
-    } else {
-        char buff[10];
-        data_dpy_append (data, "Theme path:", img->theme_dir, 0);
-        data_dpy_append (data, "File path:", img->path, 1);
-
-        snprintf (buff, ARRAY_SIZE(buff), "%d x %d", img->width, img->height);
-        data_dpy_append (data, "Image Size:", buff, 2);
-
-        snprintf (buff, ARRAY_SIZE(buff), "%d", img->size);
-        data_dpy_append (data, "Size:", buff, 3);
-
-        snprintf (buff, ARRAY_SIZE(buff), "%d", img->scale);
-        data_dpy_append (data, "Scale:", buff, 4);
-
-        data_dpy_append (data, "Type:", img->type, 5);
+        img = &l_img;
     }
+
+    int i = 0;
+    char *str;
+    char buff[10];
+
+    data_dpy_append (data, "Theme Path:", str_or_dash(img->theme_dir), i++);
+    data_dpy_append (data, "File Path:", str_or_dash(img->path), i++);
+
+    snprintf (buff, ARRAY_SIZE(buff), "%d x %d", img->width, img->height);
+    str = img->width < 1 || img->height < 1 ?  "-" : buff;
+    data_dpy_append (data, "Image Size:", str, i++);
+
+    snprintf (buff, ARRAY_SIZE(buff), "%d", img->size);
+    str = img->size < 1 ?  "-" : buff;
+    data_dpy_append (data, "Size:", str, i++);
+
+    snprintf (buff, ARRAY_SIZE(buff), "%d", img->scale);
+    str = img->scale < 1 ?  "-" : buff;
+    data_dpy_append (data, "Scale:", str, i++);
+
+    data_dpy_append (data, "Context:", str_or_dash(img->context), i++);
+    data_dpy_append (data, "Type:", str_or_dash(img->type), i++);
+
+    snprintf (buff, ARRAY_SIZE(buff), "%d - %d", img->min_size, img->max_size);
+    str = img->min_size < 1 || img->max_size < 1 ? "-" : buff;
+    data_dpy_append (data, "Size Range:", str, i++);
     return data;
 }
 
