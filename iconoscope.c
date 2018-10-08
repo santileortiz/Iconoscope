@@ -155,6 +155,23 @@ bool read_dir (DIR *dirp, struct dirent **res)
     return true;
 }
 
+// NOTE: If multiple icons are found, ties are broken according to the order in
+// valid_extensions.
+// TODO: Support svgz extension (at least Kdenlive uses it). Because GtkImage
+// doesn't understand them (yet), we may need to call gzip.
+const char* valid_extensions[] = {"svg", "png", "xpm"};
+
+bool fname_has_valid_extension (char *fname)
+{
+    char* ext = get_extension (fname);
+    if (ext) {
+        for (int i=0; i<ARRAY_SIZE(valid_extensions); i++) {
+            if (strcmp(valid_extensions[i], ext) == 0) return true;
+        }
+    }
+    return false;
+}
+
 bool icon_lookup (mem_pool_t *pool, char *dir, const char *icon_name, char **found_file)
 {
     struct stat st;
@@ -162,42 +179,30 @@ bool icon_lookup (mem_pool_t *pool, char *dir, const char *icon_name, char **fou
         // NOTE: There are index.theme files that have entries for @2
         // directories, even though such directories do not exist in the system.
         //printf ("No directory named: %s\n", dir);
-        return 0;
+        return false;
     }
 
-
-    char *ext_priority[] = {"svg", "png", "xpm"};
-    uint32_t ext_id = ARRAY_SIZE(ext_priority);
+    int ext_id = -1;
     DIR *d = opendir (dir);
     struct dirent *entry_info;
     while (read_dir (d, &entry_info)) {
-        uint32_t name_len = strlen(icon_name);
-        uint32_t entry_len = strlen(entry_info->d_name);
-        int cmp = strncmp (icon_name, entry_info->d_name, MIN (name_len, entry_len));
-        if (cmp == 0) {
-            if (name_len == entry_len ||
-                (name_len < entry_len && entry_info->d_name[name_len] == '.')) {
+        string_t icon_name_str = str_new(icon_name);
+        str_cat_c (&icon_name_str, ".");
+        uint32_t icon_name_len = str_len(&icon_name_str);
 
-                char *entry_ext = get_extension (entry_info->d_name);
-                int i;
-                for (i=0; i<ARRAY_SIZE (ext_priority); i++) {
-                    if (strcmp (ext_priority[i], entry_ext) == 0 &&
-                        i < ext_id) {
-                        ext_id = i;
-                    }
-                }
-
-                if (ext_id == 0) {
-                    break;
-                }
+        for (int i=0; i<ARRAY_SIZE(valid_extensions); i++) {
+            str_put_c (&icon_name_str, icon_name_len, valid_extensions[i]);
+            if (strcmp (str_data(&icon_name_str), entry_info->d_name) == 0) {
+                ext_id = i;
             }
         }
-    }
 
+        str_free (&icon_name_str);
+    }
     closedir (d);
 
-    if (ext_id == ARRAY_SIZE(ext_priority)) {
-        // No icon found with that name
+    if (ext_id == -1) {
+        // Found no icon named icon_name
         return false;
     } else {
         string_t found_path = str_new (dir);
@@ -206,7 +211,7 @@ bool icon_lookup (mem_pool_t *pool, char *dir, const char *icon_name, char **fou
         }
         str_cat_c (&found_path, icon_name);
         str_cat_c (&found_path, ".");
-        str_cat_c (&found_path, ext_priority[ext_id]);
+        str_cat_c (&found_path, valid_extensions[ext_id]);
 
         *found_file = mem_pool_push_size (pool, str_len(&found_path) + 1);
         memcpy (*found_file, str_data(&found_path), str_len(&found_path) + 1);
@@ -424,8 +429,7 @@ void get_all_icon_themes (mem_pool_t *pool, struct icon_theme_t **themes, uint32
             str_put_c (&path_str, path_len, entry_info->d_name);
 
             if (stat(str_data(&path_str), &st) == 0 && S_ISREG(st.st_mode)) {
-                char* ext = get_extension (entry_info->d_name);
-                if (strcmp(ext, "svg") || strcmp(ext, "png") || strcmp(ext, "xpm")) {
+                if (fname_has_valid_extension (entry_info->d_name)) {
                     uint32_t res_len = strlen (path[i]) + 1;
                     found_dirs[num_found] = (char*)pom_push_size (pool, res_len);
                     memcpy (found_dirs[num_found], path[i], res_len);
@@ -516,11 +520,11 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
               while (read_dir (d, &entry_info)) {
                   if (entry_info->d_name[0] != '.') {
                       str_put_c (&theme_dir, curr_dir_len, entry_info->d_name);
-                      if (stat(str_data(&theme_dir), &st) == 0 && S_ISREG(st.st_mode)) {
+                      if (stat(str_data(&theme_dir), &st) == 0 &&
+                          S_ISREG(st.st_mode) &&
+                          fname_has_valid_extension (entry_info->d_name)) {
                           char *icon_name = remove_extension (&local_pool, entry_info->d_name);
-                          if (icon_name != NULL) {
-                              g_hash_table_insert (ht, icon_name, NULL);
-                          }
+                          g_hash_table_insert (ht, icon_name, NULL);
                       }
                   }
               }
@@ -545,9 +549,8 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
             str_put_c (&path_str, path_len, entry_info->d_name);
 
             if (stat(str_data(&path_str), &st) == 0 && S_ISREG(st.st_mode)) {
-                char* ext = get_extension (entry_info->d_name);
-                char *icon_name = remove_extension (&local_pool, entry_info->d_name);
-                if (strcmp(ext, "svg") || strcmp(ext, "png") || strcmp(ext, "xpm")) {
+                if (fname_has_valid_extension(entry_info->d_name)) {
+                    char *icon_name = remove_extension (&local_pool, entry_info->d_name);
                     g_hash_table_insert (ht, icon_name, NULL);
                 }
             }
