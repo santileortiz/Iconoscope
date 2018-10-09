@@ -603,6 +603,12 @@ void icon_view_compute (mem_pool_t *pool,
             c = consume_section (c);
 
             while (*c) {
+                // FIXME: We currently ignore the Directories key in the first
+                // section [Icon Theme], some themes (Oxygen) have repeated
+                // directory sections while they are unique in the Directories
+                // key. Icons in these folders will show several times. Maybe
+                // read the Directories key or do nothing so theme developers
+                // can notice something strange is going on.
                 char *section_name;
                 uint32_t section_name_len;
                 c = seek_next_section (c, &section_name, &section_name_len);
