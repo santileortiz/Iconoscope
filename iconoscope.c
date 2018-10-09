@@ -705,6 +705,7 @@ void icon_view_compute (mem_pool_t *pool,
                     mem_pool_push_size (pool, sizeof(struct icon_image_t));
                 *new_img = ZERO_INIT(struct icon_image_t);
                 new_img->path = pom_strndup(pool, icon_path, strlen(icon_path));
+                new_img->full_path = new_img->path;
                 new_img->scale = 1;
 
                 // Add the new image at the end of the image linked list
