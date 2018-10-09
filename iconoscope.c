@@ -581,6 +581,7 @@ void icon_view_compute (mem_pool_t *pool,
                         struct icon_view_t *icon_view)
 {
     *icon_view = ZERO_INIT (struct icon_view_t);
+    icon_view->scale = 1;
     icon_view->icon_name = pom_strndup (pool, icon_name, strlen(icon_name));
     struct icon_image_t **last_image = &icon_view->images;
     struct icon_image_t **last_image_2 = &icon_view->images_2;
@@ -716,35 +717,44 @@ void icon_view_compute (mem_pool_t *pool,
     }
 
     // Compute the remaining fields based on the ones found above
-    struct icon_image_t *img = icon_view->images;
-    while (img != NULL) {
-        // Compute label for the image
-        // NOTE: If it's the theme that contains unthemed icons. Leave the
-        // label as NULL.
-        img->label = NULL;
-        if (theme->dir_name != NULL) {
-            img->label = mem_pool_push_size (pool, sizeof(char)*16);
-            if (img->is_scalable) {
-                sprintf (img->label, "Scalable");
-            } else {
-                sprintf (img->label, "%d", img->size);
+    struct icon_image_t *lists[] = {icon_view->images, icon_view->images_2, icon_view->images_3};
+    for (int i=0; i<ARRAY_SIZE(lists); i++) {
+        struct icon_image_t *img = lists[i];
+
+        while (img != NULL) {
+            // Compute label for the image
+            // NOTE: If it's the theme that contains unthemed icons. Leave the
+            // label as NULL.
+            img->label = NULL;
+            if (theme->dir_name != NULL) {
+                img->label = mem_pool_push_size (pool, sizeof(char)*16);
+                if (img->is_scalable) {
+                    sprintf (img->label, "Scalable");
+                } else {
+                    sprintf (img->label, "%d", img->size);
+                }
             }
+
+            // Set back pointer into icon_view_t
+            img->view = icon_view;
+
+            // Create a GtkImage for the found image
+            img->image = gtk_image_new_from_file (img->full_path);
+            gtk_widget_set_valign (img->image, GTK_ALIGN_END);
+
+            // Find the size of the created image
+            GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(img->image));
+            img->width = gdk_pixbuf_get_width(pixbuf);
+            img->height = gdk_pixbuf_get_height(pixbuf);
+            gtk_widget_set_size_request (img->image, img->width, img->height);
+
+            g_assert (img->image != NULL);
+            // We have to take a reference here because we want images to
+            // persist even after their parent widget gets destroyed
+            g_object_ref (G_OBJECT(img->image));
+
+            img = img->next;
         }
-
-        // Set back pointer into icon_view_t
-        img->view = icon_view;
-
-        // Create a GtkImage for the found image
-        img->image = gtk_image_new_from_file (img->full_path);
-        gtk_widget_set_valign (img->image, GTK_ALIGN_END);
-
-        // Find the size of the created image
-        GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(img->image));
-        img->width = gdk_pixbuf_get_width(pixbuf);
-        img->height = gdk_pixbuf_get_height(pixbuf);
-        gtk_widget_set_size_request (img->image, img->width, img->height);
-
-        img = img->next;
     }
 }
 
@@ -762,13 +772,28 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
     const char *icon_name = gtk_label_get_text (GTK_LABEL(row_label));
 
+    // Unref all GtkImages before creating the new icon_view. I don't like this,
+    // istead of storing a GtkImage we should store our own data structure that
+    // has things inside icon_view_pool.
+    struct icon_image_t *lists[] = {icon_view.images, icon_view.images_2, icon_view.images_3};
+    for (int i=0; i<ARRAY_SIZE(lists); i++) {
+        struct icon_image_t *img = lists[i];
+
+        while (img != NULL) {
+            if (img->image != NULL) {
+                g_object_unref (G_OBJECT(img->image));
+            }
+            img = img->next;
+        }
+    }
+
     // Update data in the icon_view_t structure
     mem_pool_destroy (&icon_view_pool);
     icon_view_pool = ZERO_INIT(mem_pool_t);
     icon_view = ZERO_INIT(struct icon_view_t);
     icon_view_compute (&icon_view_pool, selected_theme, icon_name, &icon_view);
 
-    draw_icon_view (&icon_view_widget, &icon_view);
+    replace_wrapped_widget(&icon_view_widget, draw_icon_view (&icon_view));
 }
 
 GtkWidget *icon_list = NULL, *search_entry = NULL;
@@ -907,7 +932,7 @@ int main(int argc, char *argv[])
     icon_view_widget = gtk_grid_new ();
     GtkWidget *paned = fix_gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
-    gtk_paned_pack2 (GTK_PANED(paned), icon_view_widget, TRUE, TRUE);
+    gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(icon_view_widget), TRUE, TRUE);
 
     gtk_combo_box_set_active (GTK_COMBO_BOX(themes_combobox), 0);
 

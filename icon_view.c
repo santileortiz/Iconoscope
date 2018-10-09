@@ -35,7 +35,8 @@ struct icon_view_t {
     //char **other_themes;
 
     // UI Widgets
-    GtkWidget *image_data;
+    GtkWidget *icon_dpy;
+    GtkWidget *image_data_dpy;
 };
 
 GtkWidget *spaced_grid_new ()
@@ -77,12 +78,12 @@ char* str_or_dash (char *str)
     }
 }
 
-GtkWidget* image_data_new (struct icon_image_t *img)
+GtkWidget* image_data_dpy_new (struct icon_image_t *img)
 {
     GtkWidget *data = gtk_grid_new ();
     gtk_grid_set_column_spacing (GTK_GRID(data), 12);
 
-    struct icon_image_t l_img;
+    struct icon_image_t l_img = ZERO_INIT(struct icon_image_t);
     if (img == NULL) {
         img = &l_img;
     }
@@ -114,71 +115,19 @@ GtkWidget* image_data_new (struct icon_image_t *img)
 void on_image_clicked (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     struct icon_image_t *img = (struct icon_image_t *)user_data;
-    GtkWidget *image_data = image_data_new (img);
-    g_assert (img->view->image_data != NULL);
+    GtkWidget *image_data_dpy = image_data_dpy_new (img);
+    g_assert (img->view->image_data_dpy != NULL);
 
-    // Replace image_data widget
-    GtkWidget *parent = gtk_widget_get_parent (img->view->image_data);
-    gtk_container_remove (GTK_CONTAINER(parent), img->view->image_data);
-    gtk_container_add (GTK_CONTAINER(parent), image_data);
-    img->view->image_data = image_data;
-    gtk_widget_show_all (image_data);
+    // Replace image_data_dpy widget
+    GtkWidget *parent = gtk_widget_get_parent (img->view->image_data_dpy);
+    gtk_container_remove (GTK_CONTAINER(parent), img->view->image_data_dpy);
+    gtk_container_add (GTK_CONTAINER(parent), image_data_dpy);
+    img->view->image_data_dpy = image_data_dpy;
+    gtk_widget_show_all (image_data_dpy);
 }
 
-void on_scale_1_toggled (GtkToggleButton *button, gpointer user_data)
+GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
 {
-    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
-    if (gtk_toggle_button_get_active(button)) {
-        icon_view->scale = 1;
-    }
-}
-
-void on_scale_2_toggled (GtkToggleButton *button, gpointer user_data)
-{
-    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
-    if (gtk_toggle_button_get_active(button)) {
-        icon_view->scale = 2;
-    }
-}
-
-void on_scale_3_toggled (GtkToggleButton *button, gpointer user_data)
-{
-    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
-    if (gtk_toggle_button_get_active(button)) {
-        icon_view->scale = 3;
-    }
-}
-
-GtkWidget* scale_selector_new (struct icon_view_t *icon_view)
-{
-    GtkWidget *selector = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
-    gtk_widget_set_halign (selector, GTK_ALIGN_END);
-    gtk_widget_set_hexpand (selector, TRUE);
-    gtk_button_box_set_layout (GTK_BUTTON_BOX(selector), GTK_BUTTONBOX_EXPAND);
-
-    GtkWidget *scale_1 = gtk_radio_button_new_with_label (NULL, "1X");
-    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_1), FALSE);
-    g_signal_connect (G_OBJECT(scale_1), "toggled", G_CALLBACK(on_scale_1_toggled), icon_view);
-    gtk_container_add (GTK_CONTAINER(selector), scale_1);
-
-    GSList *group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_1));
-    GtkWidget *scale_2 = gtk_radio_button_new_with_label (group, "2X");
-    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_2), FALSE);
-    g_signal_connect (G_OBJECT(scale_2), "toggled", G_CALLBACK(on_scale_2_toggled), icon_view);
-    gtk_container_add (GTK_CONTAINER(selector), scale_2);
-
-    group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_2));
-    GtkWidget *scale_3 = gtk_radio_button_new_with_label (group, "3X");
-    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_3), FALSE);
-    g_signal_connect (G_OBJECT(scale_3), "toggled", G_CALLBACK(on_scale_3_toggled), icon_view);
-    gtk_container_add (GTK_CONTAINER(selector), scale_3);
-
-    return selector;
-}
-
-void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
-{
-    // Create the icon display
     GtkWidget *icon_dpy = spaced_grid_new ();
     gtk_widget_set_valign (icon_dpy, GTK_ALIGN_CENTER);
     gtk_widget_set_halign (icon_dpy, GTK_ALIGN_CENTER);
@@ -192,8 +141,14 @@ void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
         GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
     GtkWidget *all_icons = gtk_box_new (all_icons_or, 24);
 
-    struct icon_image_t *last_img;
+    struct icon_image_t *last_img = NULL;
     struct icon_image_t *img = icon_view->images;
+    if (scale == 2) {
+        img = icon_view->images_2;
+    } else if (scale == 3) {
+        img = icon_view->images_3;
+    }
+
     while (img != NULL) {
         GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
         gtk_widget_set_valign (box,GTK_ALIGN_END);
@@ -221,31 +176,98 @@ void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
     }
     gtk_grid_attach (GTK_GRID(icon_dpy), all_icons, 0, 0, 1, 1);
 
-    // Create the icon data display
-    GtkWidget *data_dpy = spaced_grid_new ();
+    if (icon_view->image_data_dpy == NULL) {
+        icon_view->image_data_dpy = image_data_dpy_new (last_img);
+    } else {
+        replace_wrapped_widget (&icon_view->image_data_dpy, image_data_dpy_new (last_img));
+    }
+
+    return icon_dpy;
+}
+
+void on_scale_1_toggled (GtkToggleButton *button, gpointer user_data)
+{
+    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
+    if (gtk_toggle_button_get_active(button)) {
+        GtkWidget *icon_dpy = icon_view_create_icon_dpy (icon_view, 1);
+        replace_wrapped_widget (&icon_view->icon_dpy, icon_dpy);
+    }
+}
+
+void on_scale_2_toggled (GtkToggleButton *button, gpointer user_data)
+{
+    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
+    if (gtk_toggle_button_get_active(button)) {
+        GtkWidget *icon_dpy = icon_view_create_icon_dpy (icon_view, 2);
+        replace_wrapped_widget (&icon_view->icon_dpy, icon_dpy);
+    }
+}
+
+void on_scale_3_toggled (GtkToggleButton *button, gpointer user_data)
+{
+    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
+    if (gtk_toggle_button_get_active(button)) {
+        GtkWidget *icon_dpy = icon_view_create_icon_dpy (icon_view, 3);
+        replace_wrapped_widget (&icon_view->icon_dpy, icon_dpy);
+    }
+}
+
+GtkWidget* scale_selector_new (struct icon_view_t *icon_view)
+{
+    GtkWidget *selector = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_halign (selector, GTK_ALIGN_END);
+    gtk_widget_set_hexpand (selector, TRUE);
+    gtk_button_box_set_layout (GTK_BUTTON_BOX(selector), GTK_BUTTONBOX_EXPAND);
+
+    GtkWidget *scale_1 = gtk_radio_button_new_with_label (NULL, "1X");
+    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_1), FALSE);
+    g_signal_connect (G_OBJECT(scale_1), "toggled", G_CALLBACK(on_scale_1_toggled), icon_view);
+    gtk_container_add (GTK_CONTAINER(selector), scale_1);
+
+    GSList *group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_1));
+    GtkWidget *scale_2 = gtk_radio_button_new_with_label (group, "2X");
+    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_2), FALSE);
+    gtk_container_add (GTK_CONTAINER(selector), scale_2);
+    if (icon_view->images_2 != NULL) {
+        g_signal_connect (G_OBJECT(scale_2), "toggled", G_CALLBACK(on_scale_2_toggled), icon_view);
+    } else {
+        gtk_widget_set_sensitive (scale_2, FALSE);
+    }
+
+    group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_2));
+    GtkWidget *scale_3 = gtk_radio_button_new_with_label (group, "3X");
+    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_3), FALSE);
+    gtk_container_add (GTK_CONTAINER(selector), scale_3);
+    if (icon_view->images_3 != NULL) {
+        g_signal_connect (G_OBJECT(scale_3), "toggled", G_CALLBACK(on_scale_3_toggled), icon_view);
+    } else {
+        gtk_widget_set_sensitive (scale_3, FALSE);
+    }
+
+    return selector;
+}
+
+GtkWidget* draw_icon_view (struct icon_view_t *icon_view)
+{
+    icon_view->icon_dpy = icon_view_create_icon_dpy (icon_view, 1);
+
+    // Create the icon data pane
+    GtkWidget *data_pane = spaced_grid_new ();
     GtkWidget *icon_name_label = gtk_label_new (icon_view->icon_name);
     add_css_class (icon_name_label, "h2");
     gtk_label_set_selectable (GTK_LABEL(icon_name_label), TRUE);
     gtk_label_set_ellipsize (GTK_LABEL(icon_name_label), PANGO_ELLIPSIZE_END);
     gtk_widget_set_halign (icon_name_label, GTK_ALIGN_START);
-    gtk_grid_attach (GTK_GRID(data_dpy), icon_name_label, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(data_pane), icon_name_label, 0, 0, 1, 1);
 
     GtkWidget *scale_selector = scale_selector_new (icon_view);
-    gtk_grid_attach (GTK_GRID(data_dpy), scale_selector, 1, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(data_pane), scale_selector, 1, 0, 1, 1);
 
-    GtkWidget *wrapper = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-    icon_view->image_data = image_data_new (last_img);
-    gtk_container_add (GTK_CONTAINER(wrapper), icon_view->image_data);
-    gtk_grid_attach (GTK_GRID(data_dpy), wrapper, 0, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID(data_pane),
+                     wrap_gtk_widget(icon_view->image_data_dpy),
+                     0, 1, 1, 1);
 
-    GtkWidget *icon_view_widget = fake_paned (GTK_ORIENTATION_VERTICAL,
-                                              icon_dpy, data_dpy);
-
-    // Delete the old widget and attach the new one in its place.
-    GtkWidget *parent = gtk_widget_get_parent (*widget);
-    gtk_container_remove (GTK_CONTAINER(parent), *widget);
-    gtk_paned_pack2 (GTK_PANED(parent), icon_view_widget, TRUE, TRUE);
-    *widget = icon_view_widget;
-
-    gtk_widget_show_all(parent);
+    return fake_paned (GTK_ORIENTATION_VERTICAL,
+                       wrap_gtk_widget(icon_view->icon_dpy),
+                       data_pane);
 }

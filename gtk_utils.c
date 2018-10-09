@@ -18,6 +18,22 @@ void add_custom_css (GtkWidget *widget, gchar *css_data)
                                     GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
+GtkWidget* wrap_gtk_widget (GtkWidget *widget)
+{
+    GtkWidget *wrapper = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add (GTK_CONTAINER(wrapper), widget);
+    return wrapper;
+}
+
+void replace_wrapped_widget (GtkWidget **original, GtkWidget *new_widget)
+{
+    GtkWidget *parent = gtk_widget_get_parent (*original);
+    gtk_container_remove (GTK_CONTAINER(parent), *original);
+    *original = new_widget;
+    gtk_container_add (GTK_CONTAINER(parent), new_widget);
+    gtk_widget_show_all (new_widget);
+}
+
 void g_object_set_property_bool (GObject *object, const char *property_name, gboolean value)
 {
     GValue val = G_VALUE_INIT;
