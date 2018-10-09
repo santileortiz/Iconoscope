@@ -583,9 +583,9 @@ void icon_view_compute (mem_pool_t *pool,
     *icon_view = ZERO_INIT (struct icon_view_t);
     icon_view->scale = 1;
     icon_view->icon_name = pom_strndup (pool, icon_name, strlen(icon_name));
-    struct icon_image_t **last_image = &icon_view->images;
-    struct icon_image_t **last_image_2 = &icon_view->images_2;
-    struct icon_image_t **last_image_3 = &icon_view->images_3;
+    struct icon_image_t **last_image = &icon_view->images[0];
+    struct icon_image_t **last_image_2 = &icon_view->images[1];
+    struct icon_image_t **last_image_3 = &icon_view->images[2];
 
     if (theme->index_file != NULL) {
         bool found_image = false;
@@ -717,9 +717,8 @@ void icon_view_compute (mem_pool_t *pool,
     }
 
     // Compute the remaining fields based on the ones found above
-    struct icon_image_t *lists[] = {icon_view->images, icon_view->images_2, icon_view->images_3};
-    for (int i=0; i<ARRAY_SIZE(lists); i++) {
-        struct icon_image_t *img = lists[i];
+    for (int i=0; i<ARRAY_SIZE(icon_view->images); i++) {
+        struct icon_image_t *img = icon_view->images[i];
 
         while (img != NULL) {
             // Compute label for the image
@@ -775,9 +774,8 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     // Unref all GtkImages before creating the new icon_view. I don't like this,
     // istead of storing a GtkImage we should store our own data structure that
     // has things inside icon_view_pool.
-    struct icon_image_t *lists[] = {icon_view.images, icon_view.images_2, icon_view.images_3};
-    for (int i=0; i<ARRAY_SIZE(lists); i++) {
-        struct icon_image_t *img = lists[i];
+    for (int i=0; i<ARRAY_SIZE(icon_view.images); i++) {
+        struct icon_image_t *img = icon_view.images[i];
 
         while (img != NULL) {
             if (img->image != NULL) {

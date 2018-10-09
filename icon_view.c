@@ -27,9 +27,7 @@ struct icon_view_t {
     char *icon_name;
 
     int scale;
-    struct icon_image_t *images;
-    struct icon_image_t *images_2;
-    struct icon_image_t *images_3;
+    struct icon_image_t *images[3];
 
     //int num_other_themes;
     //char **other_themes;
@@ -137,17 +135,12 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
     // NOTE: At least one package (aptdaemon-data) provides animated icons in a
     // single file by appending the frames side by side.  Here we detect that
     // case and instead display these icons vertically.
-    GtkOrientation all_icons_or = icon_view->images->width/icon_view->images->height > 1 ?
+    GtkOrientation all_icons_or = icon_view->images[scale-1]->width/icon_view->images[scale-1]->height > 1 ?
         GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
     GtkWidget *all_icons = gtk_box_new (all_icons_or, 24);
 
     struct icon_image_t *last_img = NULL;
-    struct icon_image_t *img = icon_view->images;
-    if (scale == 2) {
-        img = icon_view->images_2;
-    } else if (scale == 3) {
-        img = icon_view->images_3;
-    }
+    struct icon_image_t *img = icon_view->images[scale-1];
 
     while (img != NULL) {
         GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
@@ -185,29 +178,13 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
     return icon_dpy;
 }
 
-void on_scale_1_toggled (GtkToggleButton *button, gpointer user_data)
+void on_scale_toggled (GtkToggleButton *button, gpointer user_data)
 {
     struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
-    if (gtk_toggle_button_get_active(button)) {
-        GtkWidget *icon_dpy = icon_view_create_icon_dpy (icon_view, 1);
-        replace_wrapped_widget (&icon_view->icon_dpy, icon_dpy);
-    }
-}
 
-void on_scale_2_toggled (GtkToggleButton *button, gpointer user_data)
-{
-    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
     if (gtk_toggle_button_get_active(button)) {
-        GtkWidget *icon_dpy = icon_view_create_icon_dpy (icon_view, 2);
-        replace_wrapped_widget (&icon_view->icon_dpy, icon_dpy);
-    }
-}
-
-void on_scale_3_toggled (GtkToggleButton *button, gpointer user_data)
-{
-    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
-    if (gtk_toggle_button_get_active(button)) {
-        GtkWidget *icon_dpy = icon_view_create_icon_dpy (icon_view, 3);
+        int scale = gtk_radio_button_get_idx (GTK_RADIO_BUTTON(button));
+        GtkWidget *icon_dpy = icon_view_create_icon_dpy (icon_view, scale);
         replace_wrapped_widget (&icon_view->icon_dpy, icon_dpy);
     }
 }
@@ -219,29 +196,19 @@ GtkWidget* scale_selector_new (struct icon_view_t *icon_view)
     gtk_widget_set_hexpand (selector, TRUE);
     gtk_button_box_set_layout (GTK_BUTTON_BOX(selector), GTK_BUTTONBOX_EXPAND);
 
-    GtkWidget *scale_1 = gtk_radio_button_new_with_label (NULL, "1X");
-    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_1), FALSE);
-    g_signal_connect (G_OBJECT(scale_1), "toggled", G_CALLBACK(on_scale_1_toggled), icon_view);
-    gtk_container_add (GTK_CONTAINER(selector), scale_1);
-
-    GSList *group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_1));
-    GtkWidget *scale_2 = gtk_radio_button_new_with_label (group, "2X");
-    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_2), FALSE);
-    gtk_container_add (GTK_CONTAINER(selector), scale_2);
-    if (icon_view->images_2 != NULL) {
-        g_signal_connect (G_OBJECT(scale_2), "toggled", G_CALLBACK(on_scale_2_toggled), icon_view);
-    } else {
-        gtk_widget_set_sensitive (scale_2, FALSE);
-    }
-
-    group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_2));
-    GtkWidget *scale_3 = gtk_radio_button_new_with_label (group, "3X");
-    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_3), FALSE);
-    gtk_container_add (GTK_CONTAINER(selector), scale_3);
-    if (icon_view->images_3 != NULL) {
-        g_signal_connect (G_OBJECT(scale_3), "toggled", G_CALLBACK(on_scale_3_toggled), icon_view);
-    } else {
-        gtk_widget_set_sensitive (scale_3, FALSE);
+    GSList *group = NULL;
+    for (int i=0; i<ARRAY_SIZE(icon_view->images); i++) {
+        char buff[3];
+        snprintf (buff, ARRAY_SIZE(buff), "%iX", i+1);
+        GtkWidget *scale_button = gtk_radio_button_new_with_label (group, buff);
+        gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_button), FALSE);
+        gtk_container_add (GTK_CONTAINER(selector), scale_button);
+        if (icon_view->images[i] != NULL) {
+            g_signal_connect (G_OBJECT(scale_button), "toggled", G_CALLBACK(on_scale_toggled), icon_view);
+        } else {
+            gtk_widget_set_sensitive (scale_button, FALSE);
+        }
+        group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_button));
     }
 
     return selector;

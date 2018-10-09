@@ -18,6 +18,14 @@ void add_custom_css (GtkWidget *widget, gchar *css_data)
                                     GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
+int gtk_radio_button_get_idx (GtkRadioButton *button)
+{
+    GSList *group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(button));
+    // Items are added at the beginning of the group, so the index is reversed
+    // from the order in which they were added.
+    return g_slist_length (group) - g_slist_index (group, button);
+}
+
 GtkWidget* wrap_gtk_widget (GtkWidget *widget)
 {
     GtkWidget *wrapper = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
