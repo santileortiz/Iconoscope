@@ -26,6 +26,7 @@ struct icon_image_t {
 struct icon_view_t {
     char *icon_name;
 
+    int scale;
     struct icon_image_t *images;
     struct icon_image_t *images_2;
     struct icon_image_t *images_3;
@@ -56,6 +57,7 @@ void data_dpy_append (GtkWidget *data, char *title, char *value, int id)
     add_css_class (title_label, "h4");
 
     GtkWidget *value_label = gtk_label_new (value);
+    gtk_label_set_ellipsize (GTK_LABEL(value_label), PANGO_ELLIPSIZE_END);
     gtk_widget_set_halign (value_label, GTK_ALIGN_START);
     gtk_label_set_selectable (GTK_LABEL(value_label), TRUE);
     add_css_class (value_label, "h5");
@@ -100,10 +102,6 @@ GtkWidget* image_data_new (struct icon_image_t *img)
     str = img->size < 1 ?  "-" : buff;
     data_dpy_append (data, "Size:", str, i++);
 
-    snprintf (buff, ARRAY_SIZE(buff), "%d", img->scale);
-    str = img->scale < 1 ?  "-" : buff;
-    data_dpy_append (data, "Scale:", str, i++);
-
     data_dpy_append (data, "Context:", str_or_dash(img->context), i++);
     data_dpy_append (data, "Type:", str_or_dash(img->type), i++);
 
@@ -125,6 +123,57 @@ void on_image_clicked (GtkWidget *widget, GdkEvent *event, gpointer user_data)
     gtk_container_add (GTK_CONTAINER(parent), image_data);
     img->view->image_data = image_data;
     gtk_widget_show_all (image_data);
+}
+
+void on_scale_1_toggled (GtkToggleButton *button, gpointer user_data)
+{
+    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
+    if (gtk_toggle_button_get_active(button)) {
+        icon_view->scale = 1;
+    }
+}
+
+void on_scale_2_toggled (GtkToggleButton *button, gpointer user_data)
+{
+    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
+    if (gtk_toggle_button_get_active(button)) {
+        icon_view->scale = 2;
+    }
+}
+
+void on_scale_3_toggled (GtkToggleButton *button, gpointer user_data)
+{
+    struct icon_view_t *icon_view = (struct icon_view_t *) user_data;
+    if (gtk_toggle_button_get_active(button)) {
+        icon_view->scale = 3;
+    }
+}
+
+GtkWidget* scale_selector_new (struct icon_view_t *icon_view)
+{
+    GtkWidget *selector = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_halign (selector, GTK_ALIGN_END);
+    gtk_widget_set_hexpand (selector, TRUE);
+    gtk_button_box_set_layout (GTK_BUTTON_BOX(selector), GTK_BUTTONBOX_EXPAND);
+
+    GtkWidget *scale_1 = gtk_radio_button_new_with_label (NULL, "1X");
+    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_1), FALSE);
+    g_signal_connect (G_OBJECT(scale_1), "toggled", G_CALLBACK(on_scale_1_toggled), icon_view);
+    gtk_container_add (GTK_CONTAINER(selector), scale_1);
+
+    GSList *group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_1));
+    GtkWidget *scale_2 = gtk_radio_button_new_with_label (group, "2X");
+    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_2), FALSE);
+    g_signal_connect (G_OBJECT(scale_2), "toggled", G_CALLBACK(on_scale_2_toggled), icon_view);
+    gtk_container_add (GTK_CONTAINER(selector), scale_2);
+
+    group = gtk_radio_button_get_group (GTK_RADIO_BUTTON(scale_2));
+    GtkWidget *scale_3 = gtk_radio_button_new_with_label (group, "3X");
+    gtk_toggle_button_set_mode (GTK_TOGGLE_BUTTON(scale_3), FALSE);
+    g_signal_connect (G_OBJECT(scale_3), "toggled", G_CALLBACK(on_scale_3_toggled), icon_view);
+    gtk_container_add (GTK_CONTAINER(selector), scale_3);
+
+    return selector;
 }
 
 void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
@@ -177,8 +226,12 @@ void draw_icon_view (GtkWidget **widget, struct icon_view_t *icon_view)
     GtkWidget *icon_name_label = gtk_label_new (icon_view->icon_name);
     add_css_class (icon_name_label, "h2");
     gtk_label_set_selectable (GTK_LABEL(icon_name_label), TRUE);
+    gtk_label_set_ellipsize (GTK_LABEL(icon_name_label), PANGO_ELLIPSIZE_END);
     gtk_widget_set_halign (icon_name_label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID(data_dpy), icon_name_label, 0, 0, 1, 1);
+
+    GtkWidget *scale_selector = scale_selector_new (icon_view);
+    gtk_grid_attach (GTK_GRID(data_dpy), scale_selector, 1, 0, 1, 1);
 
     GtkWidget *wrapper = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     icon_view->image_data = image_data_new (last_img);
