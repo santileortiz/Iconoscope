@@ -126,12 +126,6 @@ void on_image_clicked (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 
 GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
 {
-    GtkWidget *icon_dpy = spaced_grid_new ();
-    gtk_widget_set_valign (icon_dpy, GTK_ALIGN_CENTER);
-    gtk_widget_set_halign (icon_dpy, GTK_ALIGN_CENTER);
-    gtk_widget_set_hexpand (icon_dpy, TRUE);
-    gtk_widget_set_vexpand (icon_dpy, TRUE);
-
     // NOTE: At least one package (aptdaemon-data) provides animated icons in a
     // single file by appending the frames side by side.  Here we detect that
     // case and instead display these icons vertically.
@@ -167,6 +161,13 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
         }
         img = img->next;
     }
+
+    // Place the icon list inside a GtkGrid so they are centered
+    GtkWidget *icon_dpy = spaced_grid_new ();
+    gtk_widget_set_valign (icon_dpy, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign (icon_dpy, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand (icon_dpy, TRUE);
+    gtk_widget_set_vexpand (icon_dpy, TRUE);
     gtk_grid_attach (GTK_GRID(icon_dpy), all_icons, 0, 0, 1, 1);
 
     if (icon_view->image_data_dpy == NULL) {
@@ -175,7 +176,12 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
         replace_wrapped_widget (&icon_view->image_data_dpy, image_data_dpy_new (last_img));
     }
 
-    return icon_dpy;
+    // Wrap icon_dpy into a GtkScrolledWindow
+    GtkWidget *scrolled_window = gtk_scrolled_window_new (NULL, NULL);
+    gtk_widget_set_hexpand (scrolled_window, TRUE);
+    gtk_widget_set_vexpand (scrolled_window, TRUE);
+    gtk_container_add (GTK_CONTAINER (scrolled_window), icon_dpy);
+    return scrolled_window;
 }
 
 void on_scale_toggled (GtkToggleButton *button, gpointer user_data)
