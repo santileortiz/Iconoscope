@@ -870,7 +870,6 @@ void on_search_changed (GtkEditable *search_entry, gpointer user_data)
 {
     gtk_list_box_invalidate_filter (GTK_LIST_BOX(icon_list));
 }
-
 int main(int argc, char *argv[])
 {
     GtkWidget *window;
@@ -917,6 +916,7 @@ int main(int argc, char *argv[])
     gtk_grid_attach (GTK_GRID(theme_selector), themes_combobox, 1, 0, 1, 1);
 
     GtkWidget *scrolled_icon_list = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_disable_hscroll (GTK_SCROLLED_WINDOW(scrolled_icon_list));
     gtk_container_add (GTK_CONTAINER (scrolled_icon_list), icon_list);
 
     search_entry = gtk_search_entry_new ();
