@@ -583,9 +583,7 @@ void icon_view_compute (mem_pool_t *pool,
     *icon_view = ZERO_INIT (struct icon_view_t);
     icon_view->scale = 1;
     icon_view->icon_name = pom_strndup (pool, icon_name, strlen(icon_name));
-    struct icon_image_t **last_image = &icon_view->images[0];
-    struct icon_image_t **last_image_2 = &icon_view->images[1];
-    struct icon_image_t **last_image_3 = &icon_view->images[2];
+    struct icon_image_t **last_image[] = {&icon_view->images[0], &icon_view->images[1], &icon_view->images[2]};
 
     if (theme->index_file != NULL) {
         bool found_image = false;
@@ -669,16 +667,10 @@ void icon_view_compute (mem_pool_t *pool,
                     *new_img = img;
 
                     // Add the new image at the end of the corresponding linked list
-                    if (img.scale == 1) {
-                        *last_image = new_img;
-                        last_image = &new_img->next;
-                    } else if (img.scale == 2) {
-                        *last_image_2 = new_img;
-                        last_image_2 = &new_img->next;
-                    } else if (img.scale == 3) {
-                        *last_image_3 = new_img;
-                        last_image_3 = &new_img->next;
-                    } else {
+                    if (img.scale <= 3) {
+                        *last_image[new_img->scale-1] = new_img;
+                        last_image[new_img->scale-1] = &new_img->next;
+                    }  else {
                         // TODO: Will we ever use x4 icons?
                         mem_pool_end_temporary_memory (mrkr);
                     }
@@ -715,8 +707,8 @@ void icon_view_compute (mem_pool_t *pool,
                 new_img->scale = 1;
 
                 // Add the new image at the end of the image linked list
-                *last_image = new_img;
-                last_image = &new_img->next;
+                *last_image[0] = new_img;
+                last_image[0] = &new_img->next;
             }
 
             str_free (&path);
