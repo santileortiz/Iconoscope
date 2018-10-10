@@ -1292,6 +1292,7 @@ void swap_n_bytes (void *a, void*b, uint32_t n)
 // Templetized merge sort
 // IS_A_LT_B is an expression where a and b are pointers
 // to _arr_ true when *a<*b.
+// NOTE: IS_A_LT_B as defined will sort the array in ascending order.
 #define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                     \
 void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
 {                                                               \

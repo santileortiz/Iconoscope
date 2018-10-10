@@ -576,6 +576,8 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
   return res;
 }
 
+templ_sort(icon_image_sort, struct icon_image_t*, (*a)->size < (*b)->size)                     \
+
 void icon_view_compute (mem_pool_t *pool,
                         struct icon_theme_t *theme, const char *icon_name,
                         struct icon_view_t *icon_view)
@@ -584,6 +586,7 @@ void icon_view_compute (mem_pool_t *pool,
     icon_view->scale = 1;
     icon_view->icon_name = pom_strndup (pool, icon_name, strlen(icon_name));
     struct icon_image_t **last_image[] = {&icon_view->images[0], &icon_view->images[1], &icon_view->images[2]};
+    int num_images[] = {0, 0, 0};
 
     if (theme->index_file != NULL) {
         bool found_image = false;
@@ -670,16 +673,45 @@ void icon_view_compute (mem_pool_t *pool,
                     if (img.scale <= 3) {
                         *last_image[new_img->scale-1] = new_img;
                         last_image[new_img->scale-1] = &new_img->next;
+                        num_images[img.scale-1]++;
                     }  else {
                         // TODO: Will we ever use x4 icons?
                         mem_pool_end_temporary_memory (mrkr);
                     }
+
 
                 } else {
                     c = consume_section (c);
                 }
 
                 str_free (&dir);
+            }
+
+            // Sort each icon_image_t linked list
+            for (int i=0; i<ARRAY_SIZE(icon_view->images); i++) {
+                if (num_images[i] > 1) {
+                    // TODO: Sorted linked lists seem to be the common case we
+                    // can detect if sorting is required before and only sort if
+                    // necessary.
+                    // @performance
+                    struct icon_image_t *img = icon_view->images[i];
+                    struct icon_image_t *img_arr[num_images[i]];
+
+                    int j = 0;
+                    while (img != NULL) {
+                        img_arr[j] = img;
+                        j++;
+                        img = img->next;
+                    }
+
+                    icon_image_sort (img_arr, num_images[i]);
+
+                    icon_view->images[i] = img_arr[0];
+                    for (j=0; j<num_images[i] - 1; j++) {
+                        img_arr[j]->next = img_arr[j+1];
+                    }
+                    img_arr[j]->next = NULL;
+                }
             }
 
             str_free (&path);
