@@ -11,7 +11,7 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    sodipodi:docname="iconoscope.svg"
-   inkscape:version="0.91 r13725"
+   inkscape:version="0.92.3 (2405546, 2018-03-11)"
    version="1.1"
    id="svg2"
    viewBox="0 0 48 48.000001"
@@ -380,7 +380,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -613,16 +613,15 @@
     </g>
     <text
        xml:space="preserve"
-       style="font-style:normal;font-weight:normal;font-size:6.33448362px;line-height:125%;font-family:sans-serif;text-align:center;letter-spacing:0px;word-spacing:0px;text-anchor:middle;fill:#bfbfbf;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+       style="font-style:normal;font-weight:normal;line-height:0%;font-family:sans-serif;text-align:center;letter-spacing:0px;word-spacing:0px;text-anchor:middle;fill:#bfbfbf;fill-opacity:1;stroke:none;stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
        x="23.917078"
        y="1027.252"
-       id="text4911"
-       sodipodi:linespacing="125%"><tspan
+       id="text4911"><tspan
          sodipodi:role="line"
          id="tspan4913"
-         x="23.917082"
+         x="23.917078"
          y="1027.252"
-         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Limelight;-inkscape-font-specification:Limelight;fill:#bfbfbf;fill-opacity:1">END</tspan></text>
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:6.3344841px;line-height:1.25;font-family:Limelight;-inkscape-font-specification:Limelight;fill:#bfbfbf;fill-opacity:1">END</tspan></text>
     <path
        style="fill:#000000;fill-opacity:1;stroke:none;stroke-width:0;stroke-linejoin:bevel;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
        d="M 11.222656 10 A 17.793587 17.793587 0 0 0 10 11.412109 L 10 30.091797 L 37.005859 30.091797 L 37.005859 10.177734 A 17.793587 17.793587 0 0 0 36.849609 10 L 11.222656 10 z "
