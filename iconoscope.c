@@ -795,8 +795,11 @@ void icon_view_compute (mem_pool_t *pool,
             gtk_widget_set_size_request (img->image, img->width, img->height);
 
             g_assert (img->image != NULL);
-            // We have to take a reference here because we want images to
-            // persist even after their parent widget gets destroyed
+            // The container to which images will be parented will get destroyed
+            // when changing icon scales, we need to take a reference here so we
+            // can go back to them. The lifespan of these images should be equal
+            // to icon_view_t, not to their parent container.
+            // @scale_change_destroys_images
             g_object_ref (G_OBJECT(img->image));
 
             img = img->next;
@@ -821,6 +824,7 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     // Unref all GtkImages before creating the new icon_view. I don't like this,
     // istead of storing a GtkImage we should store our own data structure that
     // has things inside icon_view_pool.
+    // @scale_change_destroys_images
     for (int i=0; i<ARRAY_SIZE(icon_view.images); i++) {
         struct icon_image_t *img = icon_view.images[i];
 
