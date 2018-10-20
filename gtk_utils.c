@@ -8,7 +8,32 @@ void add_css_class (GtkWidget *widget, char *class)
     gtk_style_context_add_class (ctx, class);
 }
 
-void add_custom_css (GtkWidget *widget, gchar *css_data)
+void remove_css_class (GtkWidget *widget, char *class)
+{
+    GtkStyleContext *ctx = gtk_widget_get_style_context (widget);
+    gtk_style_context_remove_class (ctx, class);
+}
+
+GtkCssProvider* add_global_css (gchar *css_data)
+{
+    GdkScreen *screen = gdk_screen_get_default ();
+    GtkCssProvider *css_provider = gtk_css_provider_new ();
+    gtk_css_provider_load_from_data (css_provider, css_data, -1, NULL);
+    gtk_style_context_add_provider_for_screen (screen,
+                                    GTK_STYLE_PROVIDER(css_provider),
+                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    return css_provider;
+}
+
+// NOTE: I tried to dynamiccally change CSS styles in a GtkBox, and had a hard
+// time. I added a custom CSS node named box with add_custom_css(), then I added
+// a new CSS node named .my_class to the same widget. I thought adding/removing
+// the class to the widget would switch styles but it didn't work, even when
+// specifying priorities both the box node and the .my_class node conflicted
+// with each other. I decided to only add custom CSS once to a widget, keep a
+// reference to the GtkCssProvider and then use replace_custom_css(). I wish it
+// wasn't so cumbersome.
+GtkCssProvider* add_custom_css (GtkWidget *widget, gchar *css_data)
 {
     GtkStyleContext *style_context = gtk_widget_get_style_context (widget);
     GtkCssProvider *css_provider = gtk_css_provider_new ();
@@ -16,6 +41,15 @@ void add_custom_css (GtkWidget *widget, gchar *css_data)
     gtk_style_context_add_provider (style_context,
                                     GTK_STYLE_PROVIDER(css_provider),
                                     GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    return css_provider;
+}
+
+GtkCssProvider* replace_custom_css (GtkWidget *widget, GtkCssProvider *custom_css, gchar *css_data)
+{
+    GtkStyleContext *style_context = gtk_widget_get_style_context (widget);
+    gtk_style_context_remove_provider (style_context, GTK_STYLE_PROVIDER(custom_css));
+
+    return add_custom_css (widget, css_data);
 }
 
 int gtk_radio_button_get_idx (GtkRadioButton *button)

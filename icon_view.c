@@ -2,6 +2,20 @@
  * Copiright (C) 2018 Santiago León O.
  */
 
+#define UNSELECTED_ICON_BOX_STYLE       \
+"box {"                                 \
+"    padding: 6px;"                     \
+"    border-radius: 3px;"               \
+"    border: 1px solid rgba(0,0,0,0);"  \
+"}"
+
+#define SELECTED_ICON_BOX_STYLE \
+"box {"                         \
+"    padding: 6px;"             \
+"    border-radius: 3px;"       \
+"    border: 1px solid #777;"   \
+"}"
+
 struct icon_image_t {
     GtkWidget *image;
     int width, height;
@@ -21,6 +35,10 @@ struct icon_image_t {
 
     struct icon_image_t *next;
     struct icon_view_t *view; // Pointer to the icon_view_t this icon_image_t is member of.
+
+    // UI Widgets
+    GtkWidget *box;
+    GtkCssProvider *custom_css;
 };
 
 struct icon_view_t {
@@ -35,6 +53,7 @@ struct icon_view_t {
     // UI Widgets
     GtkWidget *icon_dpy;
     GtkWidget *image_data_dpy;
+    struct icon_image_t *selected_img;
 };
 
 GtkWidget *spaced_grid_new ()
@@ -110,11 +129,28 @@ GtkWidget* image_data_dpy_new (struct icon_image_t *img)
     return data;
 }
 
+void set_icon_box_border (struct icon_image_t *img)
+{
+    img->custom_css = replace_custom_css (img->box, img->custom_css, SELECTED_ICON_BOX_STYLE);
+}
+
+void unset_icon_box_border (struct icon_image_t *img)
+{
+    img->custom_css = replace_custom_css (img->box, img->custom_css, UNSELECTED_ICON_BOX_STYLE);
+}
+
 void on_image_clicked (GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
     struct icon_image_t *img = (struct icon_image_t *)user_data;
     GtkWidget *image_data_dpy = image_data_dpy_new (img);
     g_assert (img->view->image_data_dpy != NULL);
+
+    if (img->view->selected_img != NULL) {
+        unset_icon_box_border (img->view->selected_img);
+    }
+
+    img->view->selected_img = img;
+    set_icon_box_border (img);
 
     // Replace image_data_dpy widget
     GtkWidget *parent = gtk_widget_get_parent (img->view->image_data_dpy);
@@ -131,13 +167,16 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
     // case and instead display these icons vertically.
     GtkOrientation all_icons_or = icon_view->images[scale-1]->width/icon_view->images[scale-1]->height > 1 ?
         GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
-    GtkWidget *all_icons = gtk_box_new (all_icons_or, 24);
+    GtkWidget *all_icons = gtk_box_new (all_icons_or, 12);
 
     struct icon_image_t *last_img = NULL;
     struct icon_image_t *img = icon_view->images[scale-1];
 
     while (img != NULL) {
         GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+        img->box = box;
+        img->custom_css = add_custom_css (box, UNSELECTED_ICON_BOX_STYLE);
+
         gtk_widget_set_valign (box,GTK_ALIGN_END);
         gtk_widget_set_vexpand (box, FALSE);
 
@@ -157,6 +196,8 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
         gtk_container_add (GTK_CONTAINER(all_icons), hitbox);
 
         if(img->next == NULL) {
+            icon_view->selected_img = img;
+            set_icon_box_border (img);
             last_img = img;
         }
         img = img->next;
