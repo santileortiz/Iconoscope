@@ -3,6 +3,8 @@
 
 #include "common.h"
 #include "gtk_utils.c"
+dvec4 bg_color;
+
 #include "icon_view.c"
 
 static inline
@@ -903,6 +905,7 @@ void on_search_changed (GtkEditable *search_entry, gpointer user_data)
 int main(int argc, char *argv[])
 {
     GtkWidget *window;
+    bg_color = RGBA (0,0,0,0);
 
     gtk_init(&argc, &argv);
 

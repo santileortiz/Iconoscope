@@ -54,17 +54,20 @@ struct icon_view_t {
     GtkWidget *icon_dpy;
     GtkWidget *image_data_dpy;
     struct icon_image_t *selected_img;
+
+    GtkWidget *scrolled_window;
+    GtkCssProvider *scrolled_window_custom_css;
 };
 
-GtkWidget *spaced_grid_new ()
+GtkWidget *spaced_grid_new (int spacing)
 {
     GtkWidget *new_grid = gtk_grid_new ();
-    gtk_widget_set_margin_start (GTK_WIDGET(new_grid), 12);
-    gtk_widget_set_margin_end (GTK_WIDGET(new_grid), 12);
-    gtk_widget_set_margin_top (GTK_WIDGET(new_grid), 12);
-    gtk_widget_set_margin_bottom (GTK_WIDGET(new_grid), 12);
-    gtk_grid_set_row_spacing (GTK_GRID(new_grid), 12);
-    gtk_grid_set_column_spacing (GTK_GRID(new_grid), 12);
+    gtk_widget_set_margin_start (GTK_WIDGET(new_grid), spacing);
+    gtk_widget_set_margin_end (GTK_WIDGET(new_grid), spacing);
+    gtk_widget_set_margin_top (GTK_WIDGET(new_grid), spacing);
+    gtk_widget_set_margin_bottom (GTK_WIDGET(new_grid), spacing);
+    gtk_grid_set_row_spacing (GTK_GRID(new_grid), spacing);
+    gtk_grid_set_column_spacing (GTK_GRID(new_grid), spacing);
     return new_grid;
 }
 
@@ -160,6 +163,38 @@ void on_image_clicked (GtkWidget *widget, GdkEvent *event, gpointer user_data)
     gtk_widget_show_all (image_data_dpy);
 }
 
+char* new_bgcolor_style_str (mem_pool_t *pool, char *node_name, dvec4 color)
+{
+    char *str =
+        pprintf (pool,
+                 "%s {"
+                 "    background-color: rgba(%d,%d,%d,%d);"
+                 "}",
+                 node_name,
+                 (int)(color.r*255), (int)(color.g*255), (int)(color.b*255), (int)(color.a*255));
+    return str;
+}
+
+void icon_view_update_bg_color (struct icon_view_t *icon_view, dvec4 color)
+{
+    mem_pool_t pool = {0};
+    char *style = new_bgcolor_style_str (&pool, "scrolledwindow", color);
+    icon_view->scrolled_window_custom_css =
+        replace_custom_css (icon_view->scrolled_window, icon_view->scrolled_window_custom_css,
+                            style);
+    mem_pool_destroy (&pool);
+}
+
+void on_color_button_clicked (GtkColorButton *button, gpointer user_data)
+{
+    struct icon_view_t *icon_view = (struct icon_view_t*)user_data;
+    GdkRGBA gdk_color;
+    gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(button), &gdk_color);
+    dvec4 color = RGBA(gdk_color.red, gdk_color.green, gdk_color.blue, gdk_color.alpha);
+    icon_view_update_bg_color (icon_view, color);
+    bg_color = color;
+}
+
 GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
 {
     // NOTE: At least one package (aptdaemon-data) provides animated icons in a
@@ -204,7 +239,7 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
     }
 
     // Place the icon list inside a GtkGrid so they are centered
-    GtkWidget *icon_dpy = spaced_grid_new ();
+    GtkWidget *icon_dpy = spaced_grid_new (12);
     gtk_widget_set_valign (icon_dpy, GTK_ALIGN_CENTER);
     gtk_widget_set_halign (icon_dpy, GTK_ALIGN_CENTER);
     gtk_widget_set_hexpand (icon_dpy, TRUE);
@@ -219,10 +254,34 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
 
     // Wrap icon_dpy into a GtkScrolledWindow
     GtkWidget *scrolled_window = gtk_scrolled_window_new (NULL, NULL);
+    mem_pool_t pool = {0};
+    icon_view->scrolled_window_custom_css =
+        add_custom_css (scrolled_window, new_bgcolor_style_str (&pool, "scrolledwindow", bg_color));
+    mem_pool_destroy (&pool);
+    icon_view->scrolled_window = scrolled_window;
+
     gtk_widget_set_hexpand (scrolled_window, TRUE);
     gtk_widget_set_vexpand (scrolled_window, TRUE);
     gtk_container_add (GTK_CONTAINER (scrolled_window), icon_dpy);
-    return scrolled_window;
+
+    GdkRGBA c = GDK_RGBA_FROM_RGBA(bg_color);
+    GtkWidget *button = gtk_color_button_new_with_rgba (&c);
+    gtk_color_chooser_set_use_alpha (GTK_COLOR_CHOOSER(button), TRUE);
+    add_custom_css (button,
+                    "button {"
+                    "    background-color: @bg_color;"
+                    "}");
+
+    g_signal_connect (G_OBJECT(button), "color-set", G_CALLBACK(on_color_button_clicked), icon_view);
+    GtkWidget *toolbar = spaced_grid_new (6);
+    gtk_container_add (GTK_CONTAINER (toolbar), button);
+
+    GtkWidget *overlay = gtk_overlay_new ();
+    gtk_container_add (GTK_CONTAINER (overlay), scrolled_window);
+    gtk_overlay_add_overlay (GTK_OVERLAY(overlay), toolbar);
+    gtk_overlay_set_overlay_pass_through (GTK_OVERLAY(overlay), toolbar, TRUE);
+
+    return overlay;
 }
 
 void on_scale_toggled (GtkToggleButton *button, gpointer user_data)
@@ -266,7 +325,7 @@ GtkWidget* draw_icon_view (struct icon_view_t *icon_view)
     icon_view->icon_dpy = icon_view_create_icon_dpy (icon_view, 1);
 
     // Create the icon data pane
-    GtkWidget *data_pane = spaced_grid_new ();
+    GtkWidget *data_pane = spaced_grid_new (12);
     GtkWidget *icon_name_label = gtk_label_new (icon_view->icon_name);
     add_css_class (icon_name_label, "h2");
     gtk_label_set_selectable (GTK_LABEL(icon_name_label), TRUE);

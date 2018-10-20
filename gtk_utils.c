@@ -2,6 +2,17 @@
  * Copiright (C) 2018 Santiago León O.
  */
 
+#define RGBA DVEC4
+#define RGB(r,g,b) DVEC4(r,g,b,1)
+#define ARGS_RGBA(c) (c).r, (c).g, (c).b, (c).a
+#define ARGS_RGB(c) (c.r), (c).g, (c).b
+#define RGB_HEX(hex) DVEC4(((double)(((hex)&0xFF0000) >> 16))/255, \
+                           ((double)(((hex)&0x00FF00) >>  8))/255, \
+                           ((double)((hex)&0x0000FF))/255, 1)
+
+#define GDK_RGBA(r,g,b,a) ((GdkRGBA){.red=r, .green=g, .blue=b, .alpha=a})
+#define GDK_RGBA_FROM_RGBA(rgba) ((GdkRGBA){.red=rgba.r, .green=rgba.g, .blue=rgba.b, .alpha=rgba.a})
+
 void add_css_class (GtkWidget *widget, char *class)
 {
     GtkStyleContext *ctx = gtk_widget_get_style_context (widget);
