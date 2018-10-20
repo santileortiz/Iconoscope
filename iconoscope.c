@@ -1,3 +1,4 @@
+#include <locale.h>
 #include <cairo.h>
 #include <gtk/gtk.h>
 
@@ -782,6 +783,9 @@ void icon_view_compute (mem_pool_t *pool,
 
             // Create a GtkImage for the found image
             img->image = gtk_image_new_from_file (img->full_path);
+            struct stat st;
+            stat(img->full_path, &st);
+            img->file_size = st.st_size;
             gtk_widget_set_valign (img->image, GTK_ALIGN_END);
 
             // Find the size of the created image

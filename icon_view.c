@@ -25,6 +25,7 @@ struct icon_image_t {
     char *theme_dir;
     char *path;
     char *full_path;
+    off_t file_size;
     int size;
     int min_size;
     int max_size;
@@ -98,6 +99,49 @@ char* str_or_dash (char *str)
     }
 }
 
+// NOTE: requires #include <locale.h>
+void bytes_to_human_readable (off_t size, char *buff, size_t buff_len)
+{
+    assert (buff_len > 9);
+
+    int i = 0;
+    float hr = size;
+    while (hr > 1024) {
+        i++;
+        hr /= 1024;
+    }
+
+    char *unit = "?";
+    if (i == 0) {
+        unit = "B";
+    } else if (i == 1) {
+        unit = "K";
+    } else if (i == 2) {
+        unit = "M";
+    } else if (i == 3) {
+        unit = "G";
+    } else if (i == 4) {
+        unit = "T";
+    } else if (i == 5) {
+        unit = "P";
+    } else if (i == 6) {
+        unit = "E";
+    } else if (i == 7) {
+        unit = "Z";
+    } else if (i == 8) {
+        unit = "Y";
+    }
+
+    struct lconv *locale = localeconv();
+    int int_part = (int)hr;
+    int dec_part = (int)((hr - int_part)*10);
+    if (dec_part != 0) {
+        snprintf (buff, buff_len, "%d%s%d %s", int_part, locale->decimal_point, dec_part, unit);
+    } else {
+        snprintf (buff, buff_len, "%d %s", int_part, unit);
+    }
+}
+
 GtkWidget* image_data_dpy_new (struct icon_image_t *img)
 {
     GtkWidget *data = gtk_grid_new ();
@@ -118,6 +162,9 @@ GtkWidget* image_data_dpy_new (struct icon_image_t *img)
     snprintf (buff, ARRAY_SIZE(buff), "%d x %d", img->width, img->height);
     str = img->width < 1 || img->height < 1 ?  "-" : buff;
     data_dpy_append (data, "Image Size:", str, i++);
+
+    bytes_to_human_readable (img->file_size, buff, ARRAY_SIZE(buff));
+    data_dpy_append (data, "File Size:", buff, i++);
 
     snprintf (buff, ARRAY_SIZE(buff), "%d", img->size);
     str = img->size < 1 ?  "-" : buff;
