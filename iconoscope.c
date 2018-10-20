@@ -4,7 +4,54 @@
 
 #include "common.h"
 #include "gtk_utils.c"
-dvec4 bg_color;
+
+struct app_t app;
+
+#include "icon_view.h"
+
+struct icon_theme_t {
+    char *name;
+    uint32_t num_dirs;
+    char **dirs;
+    char *index_file;
+    char *dir_name;
+};
+
+// TODO: Support svgz extension (at least Kdenlive uses it). Because GtkImage
+// doesn't understand them (yet), we may need to call gzip.
+// NOTE: The order here defines the priority, from highest to lowest.
+#define VALID_EXTENSIONS \
+    EXTENSION(EXT_SVG, ".svg") \
+    EXTENSION(EXT_SYMBOLIC_PNG, ".symbolic.png") \
+    EXTENSION(EXT_PNG, ".png") \
+    EXTENSION(EXT_XPM, ".xpm")
+
+enum valid_extensions {
+#define EXTENSION(name,str) name,
+    VALID_EXTENSIONS
+#undef EXTENSION
+    NUM_EXTENSIONS
+};
+
+struct app_t {
+    // App state
+    struct icon_theme_t *selected_theme;
+    dvec4 bg_color;
+
+    GtkWidget *icon_list;
+    GtkWidget *search_entry;
+    GtkWidget *icon_view_widget;
+
+    // Data
+    mem_pool_t themes_pool;
+    uint32_t num_themes;
+    struct icon_theme_t *themes;
+
+    mem_pool_t icon_view_pool;
+    struct icon_view_t icon_view;
+
+    const char* valid_extensions[NUM_EXTENSIONS];
+};
 
 #include "icon_view.c"
 
@@ -160,18 +207,14 @@ bool read_dir (DIR *dirp, struct dirent **res)
 
 // NOTE: If multiple icons are found, ties are broken according to the order in
 // valid_extensions.
-// TODO: Support svgz extension (at least Kdenlive uses it). Because GtkImage
-// doesn't understand them (yet), we may need to call gzip.
-const char* valid_extensions[] = {".svg", ".symbolic.png", ".png", ".xpm"};
-
 bool fname_has_valid_extension (char *fname, size_t *icon_name_len)
 {
     bool ret = false;
     size_t len = strlen (fname);
-    for (int i=0; i<ARRAY_SIZE(valid_extensions); i++) {
-        if (g_str_has_suffix(fname, valid_extensions[i])) {
+    for (int i=0; i<ARRAY_SIZE(app.valid_extensions); i++) {
+        if (g_str_has_suffix(fname, app.valid_extensions[i])) {
             if (icon_name_len != NULL) {
-                len -= strlen (valid_extensions[i]);
+                len -= strlen (app.valid_extensions[i]);
             }
             ret = true;
             break;
@@ -201,8 +244,8 @@ bool icon_lookup (mem_pool_t *pool, char *dir, const char *icon_name, char **fou
         string_t icon_name_str = str_new(icon_name);
         uint32_t icon_name_len = str_len(&icon_name_str);
 
-        for (int i=0; i<ARRAY_SIZE(valid_extensions); i++) {
-            str_put_c (&icon_name_str, icon_name_len, valid_extensions[i]);
+        for (int i=0; i<ARRAY_SIZE(app.valid_extensions); i++) {
+            str_put_c (&icon_name_str, icon_name_len, app.valid_extensions[i]);
             if (strcmp (str_data(&icon_name_str), entry_info->d_name) == 0) {
                 ext_id = i;
             }
@@ -221,7 +264,7 @@ bool icon_lookup (mem_pool_t *pool, char *dir, const char *icon_name, char **fou
             str_cat_c (&found_path, "/");
         }
         str_cat_c (&found_path, icon_name);
-        str_cat_c (&found_path, valid_extensions[ext_id]);
+        str_cat_c (&found_path, app.valid_extensions[ext_id]);
 
         *found_file = mem_pool_push_size (pool, str_len(&found_path) + 1);
         memcpy (*found_file, str_data(&found_path), str_len(&found_path) + 1);
@@ -255,14 +298,6 @@ bool file_lookup (char *dir, char *file)
     closedir (d);
     return res;
 }
-
-struct icon_theme_t {
-    char *name;
-    uint32_t num_dirs;
-    char **dirs;
-    char *index_file;
-    char *dir_name;
-};
 
 void set_theme_name (mem_pool_t *pool, struct icon_theme_t *theme)
 {
@@ -807,11 +842,6 @@ void icon_view_compute (mem_pool_t *pool,
     }
 }
 
-struct icon_theme_t *selected_theme = NULL;
-GtkWidget *icon_view_widget = NULL;
-mem_pool_t icon_view_pool;
-struct icon_view_t icon_view;
-
 void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
 {
     if (row == NULL) {
@@ -825,8 +855,8 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     // istead of storing a GtkImage we should store our own data structure that
     // has things inside icon_view_pool.
     // @scale_change_destroys_images
-    for (int i=0; i<ARRAY_SIZE(icon_view.images); i++) {
-        struct icon_image_t *img = icon_view.images[i];
+    for (int i=0; i<ARRAY_SIZE(app.icon_view.images); i++) {
+        struct icon_image_t *img = app.icon_view.images[i];
 
         while (img != NULL) {
             if (img->image != NULL) {
@@ -837,21 +867,17 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     }
 
     // Update data in the icon_view_t structure
-    mem_pool_destroy (&icon_view_pool);
-    icon_view_pool = ZERO_INIT(mem_pool_t);
-    icon_view = ZERO_INIT(struct icon_view_t);
-    icon_view_compute (&icon_view_pool, selected_theme, icon_name, &icon_view);
+    mem_pool_destroy (&app.icon_view_pool);
+    app.icon_view_pool = ZERO_INIT(mem_pool_t);
+    app.icon_view = ZERO_INIT(struct icon_view_t);
+    icon_view_compute (&app.icon_view_pool, app.selected_theme, icon_name, &app.icon_view);
 
-    replace_wrapped_widget(&icon_view_widget, draw_icon_view (&icon_view));
+    replace_wrapped_widget(&app.icon_view_widget, draw_icon_view (&app.icon_view));
 }
-
-GtkWidget *icon_list = NULL, *search_entry = NULL;
-struct icon_theme_t *themes;
-uint32_t num_themes;
 
 gboolean on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer data) {
     if (event->keyval == GDK_KEY_Escape){
-        gtk_entry_set_text (GTK_ENTRY(search_entry), "");
+        gtk_entry_set_text (GTK_ENTRY(app.search_entry), "");
         return TRUE;
     }
     return FALSE;
@@ -859,7 +885,7 @@ gboolean on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer data) {
 
 gboolean search_filter (GtkListBoxRow *row, gpointer user_data)
 {
-    const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(search_entry));
+    const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(app.search_entry));
     GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
     const char * icon_name = gtk_label_get_text (GTK_LABEL(row_label));
 
@@ -875,19 +901,19 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     // NOTE: It's better to query who the prent widget is (rather than keeping a
     // reference to it) because it can change in unexpected ways. For instance,
     // in this case GtkScrolledWindow wraps icon_list in a GtkViewPort.
-    GtkWidget *parent = gtk_widget_get_parent (icon_list);
-    gtk_container_remove (GTK_CONTAINER(parent), icon_list);
+    GtkWidget *parent = gtk_widget_get_parent (app.icon_list);
+    gtk_container_remove (GTK_CONTAINER(parent), app.icon_list);
 
-    icon_list = gtk_list_box_new ();
-    add_custom_css (icon_list, ".list, list { background-color: transparent; }");
-    gtk_widget_set_vexpand (icon_list, TRUE);
-    gtk_widget_set_hexpand (icon_list, TRUE);
-    g_signal_connect (G_OBJECT(icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
-    gtk_list_box_set_filter_func (GTK_LIST_BOX(icon_list), search_filter, NULL, NULL);
+    app.icon_list = gtk_list_box_new ();
+    add_custom_css (app.icon_list, ".list, list { background-color: transparent; }");
+    gtk_widget_set_vexpand (app.icon_list, TRUE);
+    gtk_widget_set_hexpand (app.icon_list, TRUE);
+    g_signal_connect (G_OBJECT(app.icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
+    gtk_list_box_set_filter_func (GTK_LIST_BOX(app.icon_list), search_filter, NULL, NULL);
 
-    selected_theme =
-        themes + gtk_combo_box_get_active (themes_combobox);
-    GList *icon_names = get_theme_icon_names (selected_theme);
+    app.selected_theme =
+        app.themes + gtk_combo_box_get_active (themes_combobox);
+    GList *icon_names = get_theme_icon_names (app.selected_theme);
     icon_names = g_list_sort (icon_names, str_cmp_callback);
 
     bool first = true;
@@ -896,13 +922,13 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     for (l = icon_names; l != NULL; l = l->next)
     {
         GtkWidget *row = gtk_label_new (l->data);
-        gtk_container_add (GTK_CONTAINER(icon_list), row);
+        gtk_container_add (GTK_CONTAINER(app.icon_list), row);
         gtk_widget_set_halign (row, GTK_ALIGN_START);
 
         if (first) {
             first = false;
             GtkWidget *r = gtk_widget_get_parent (row);
-            gtk_list_box_select_row (GTK_LIST_BOX(icon_list), GTK_LIST_BOX_ROW(r));
+            gtk_list_box_select_row (GTK_LIST_BOX(app.icon_list), GTK_LIST_BOX_ROW(r));
         }
 
         gtk_widget_set_margin_start (row, 6);
@@ -912,18 +938,23 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
         i++;
     }
 
-    gtk_container_add (GTK_CONTAINER(parent), icon_list);
-    gtk_widget_show_all(icon_list);
+    gtk_container_add (GTK_CONTAINER(parent), app.icon_list);
+    gtk_widget_show_all(app.icon_list);
 }
 
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
 {
-    gtk_list_box_invalidate_filter (GTK_LIST_BOX(icon_list));
+    gtk_list_box_invalidate_filter (GTK_LIST_BOX(app.icon_list));
 }
+
 int main(int argc, char *argv[])
 {
     GtkWidget *window;
-    bg_color = RGBA (0,0,0,0);
+    app = (struct app_t){
+#define EXTENSION(name,str) str,
+        .valid_extensions = { VALID_EXTENSIONS }
+#undef EXTENSION
+    };
 
     gtk_init(&argc, &argv);
 
@@ -938,13 +969,12 @@ int main(int argc, char *argv[])
     g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
     g_signal_connect (G_OBJECT(window), "key_press_event", G_CALLBACK (on_key_press), NULL);
 
-    mem_pool_t pool = {0};
-    get_all_icon_themes (&pool, &themes, &num_themes);
+    get_all_icon_themes (&app.themes_pool, &app.themes, &app.num_themes);
 
-    icon_list = gtk_list_box_new ();
-    gtk_widget_set_vexpand (icon_list, TRUE);
-    gtk_widget_set_hexpand (icon_list, TRUE);
-    g_signal_connect (G_OBJECT(icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
+    app.icon_list = gtk_list_box_new ();
+    gtk_widget_set_vexpand (app.icon_list, TRUE);
+    gtk_widget_set_hexpand (app.icon_list, TRUE);
+    g_signal_connect (G_OBJECT(app.icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
 
     GtkWidget *themes_label = gtk_label_new ("Theme:");
     GtkStyleContext *ctx = gtk_widget_get_style_context (themes_label);
@@ -957,8 +987,8 @@ int main(int argc, char *argv[])
     gtk_widget_set_margin_start (themes_combobox, 12);
     gtk_widget_set_margin_end (themes_combobox, 6);
     int i;
-    for (i=0; i<num_themes; i++) {
-        gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT(themes_combobox), themes[i].name);
+    for (i=0; i<app.num_themes; i++) {
+        gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT(themes_combobox), app.themes[i].name);
     }
     g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_theme_changed), NULL);
 
@@ -968,21 +998,21 @@ int main(int argc, char *argv[])
 
     GtkWidget *scrolled_icon_list = gtk_scrolled_window_new (NULL, NULL);
     gtk_scrolled_window_disable_hscroll (GTK_SCROLLED_WINDOW(scrolled_icon_list));
-    gtk_container_add (GTK_CONTAINER (scrolled_icon_list), icon_list);
+    gtk_container_add (GTK_CONTAINER (scrolled_icon_list), app.icon_list);
 
-    search_entry = gtk_search_entry_new ();
-    add_custom_css (search_entry, ".entry, entry { border-radius: 13px; }");
-    g_signal_connect (G_OBJECT(search_entry), "changed", G_CALLBACK (on_search_changed), NULL);
+    app.search_entry = gtk_search_entry_new ();
+    add_custom_css (app.search_entry, ".entry, entry { border-radius: 13px; }");
+    g_signal_connect (G_OBJECT(app.search_entry), "changed", G_CALLBACK (on_search_changed), NULL);
 
     GtkWidget *sidebar = gtk_grid_new ();
-    gtk_grid_attach (GTK_GRID(sidebar), search_entry, 0, 0, 1, 1);
+    gtk_grid_attach (GTK_GRID(sidebar), app.search_entry, 0, 0, 1, 1);
     gtk_grid_attach (GTK_GRID(sidebar), scrolled_icon_list, 0, 1, 1, 1);
     gtk_grid_attach (GTK_GRID(sidebar), theme_selector, 0, 2, 1, 1);
 
-    icon_view_widget = gtk_grid_new ();
+    app.icon_view_widget = gtk_grid_new ();
     GtkWidget *paned = fix_gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
-    gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(icon_view_widget), TRUE, TRUE);
+    gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(app.icon_view_widget), TRUE, TRUE);
 
     gtk_combo_box_set_active (GTK_COMBO_BOX(themes_combobox), 0);
 
