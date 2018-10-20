@@ -578,7 +578,17 @@ GList* get_theme_icon_names (struct icon_theme_t *theme)
   return res;
 }
 
-templ_sort(icon_image_sort, struct icon_image_t*, (*a)->size < (*b)->size)                     \
+// This makes scalable images allways sort as the largest.
+bool is_img_lt (struct icon_image_t *a, struct icon_image_t *b)
+{
+    if (a->is_scalable == b->is_scalable) {
+        return a->size < b->size;
+    } else {
+        return b->is_scalable;
+    }
+}
+
+templ_sort(icon_image_sort, struct icon_image_t*, is_img_lt(*a, *b))
 
 void icon_view_compute (mem_pool_t *pool,
                         struct icon_theme_t *theme, const char *icon_name,
