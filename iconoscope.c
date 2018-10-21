@@ -345,6 +345,99 @@ void icon_theme_destroy (struct icon_theme_t *icon_theme)
     mem_pool_destroy (&icon_theme->pool);
 }
 
+// I have to find this information directly from the icon directories and
+// index.theme files. The alternative of using GtkIconTheme with a custom theme
+// and then calling gtk_icon_theme_list_icons() on it does not only return icons
+// from the chosen theme. Instead it also includes:
+//
+//      * Unthemed icons
+//      * Deprecated stock id's (see GTK/testsuite/gtk/check-icon-names.c)
+//      * Internal icons (see GTK/testsuite/gtk/check-icon-names.c)
+//      * All icons from Hicolor, GNOME and Adwaita themes
+//
+// I expected Hicolor icons to be there because it's the fallback theme, but I
+// didn't expect any of the rest. All this is probably done for backward
+// compatibility reasons but it does not work for what we want.
+void set_theme_icon_names (struct icon_theme_t *theme)
+{
+  theme->icon_names = g_hash_table_new (g_str_hash, g_str_equal);
+
+  if (theme->dir_name != NULL) {
+      int i;
+      for (i=0; i<theme->num_dirs; i++) {
+          char *c = theme->index_file;
+
+          // Ignore the first section: [Icon Theme]
+          c = seek_next_section (c, NULL, NULL);
+          c = consume_section (c);
+
+          string_t theme_dir = str_new (theme->dirs[i]);
+          str_cat_c (&theme_dir, "/");
+          uint32_t theme_dir_len = str_len (&theme_dir);
+          while ((c = consume_section (c)) && *c) {
+              char *section_name;
+              uint32_t section_name_len;
+              c = seek_next_section (c, &section_name, &section_name_len);
+              string_t curr_dir = strn_new (section_name, section_name_len);
+              str_put (&theme_dir, theme_dir_len, &curr_dir);
+              if (section_name[section_name_len-1] != '/') {
+                  str_cat_c (&theme_dir, "/");
+              }
+              uint32_t curr_dir_len = str_len (&theme_dir);
+
+              struct stat st;
+              if (stat(str_data(&theme_dir), &st) == -1 && errno == ENOENT) {
+                  continue;
+              }
+
+              DIR *d = opendir (str_data(&theme_dir));
+              struct dirent *entry_info;
+              while (read_dir (d, &entry_info)) {
+                  if (entry_info->d_name[0] != '.') {
+                      str_put_c (&theme_dir, curr_dir_len, entry_info->d_name);
+                      size_t icon_name_len;
+                      if (stat(str_data(&theme_dir), &st) == 0 &&
+                          S_ISREG(st.st_mode) &&
+                          fname_has_valid_extension (entry_info->d_name, &icon_name_len)) {
+                          char *icon_name = pom_strndup (&theme->pool, entry_info->d_name, icon_name_len);
+                          g_hash_table_insert (theme->icon_names, icon_name, NULL);
+                      }
+                  }
+              }
+              closedir (d);
+          }
+      }
+
+  } else {
+      // This is the case for non themed icons.
+      int i;
+      for (i=0; i<theme->num_dirs; i++) {
+        string_t path_str = str_new (theme->dirs[i]);
+        if (str_last(&path_str) != '/') {
+            str_cat_c (&path_str, "/");
+        }
+        uint32_t path_len = str_len (&path_str);
+
+        DIR *d = opendir (str_data(&path_str));
+        struct dirent *entry_info;
+        while (read_dir (d, &entry_info)) {
+            struct stat st;
+            str_put_c (&path_str, path_len, entry_info->d_name);
+
+            if (stat(str_data(&path_str), &st) == 0 && S_ISREG(st.st_mode)) {
+                size_t icon_name_len;
+                if (fname_has_valid_extension(entry_info->d_name, &icon_name_len)) {
+                    char *icon_name = pom_strndup (&theme->pool, entry_info->d_name, icon_name_len);
+                    g_hash_table_insert (theme->icon_names, icon_name, NULL);
+                }
+            }
+        }
+        str_free (&path_str);
+        closedir (d);
+      }
+  }
+}
+
 void app_load_all_icon_themes (struct app_t *app)
 {
     GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
@@ -469,6 +562,12 @@ void app_load_all_icon_themes (struct app_t *app)
     no_theme->dirs = (char**)pom_push_size (&no_theme->pool, sizeof(char*)*num_found);
     memcpy (no_theme->dirs, found_dirs, sizeof(char*)*num_found);
     no_theme->num_dirs = num_found;
+
+    // Find all icon names for each found theme and store them in the icon_names
+    // hash table.
+    for (struct icon_theme_t *curr_theme = app->themes; curr_theme; curr_theme = curr_theme->next) {
+        set_theme_icon_names (curr_theme);
+    }
 }
 
 void app_destroy (struct app_t *app)
@@ -485,99 +584,6 @@ void app_destroy (struct app_t *app)
 gint str_cmp_callback (gconstpointer a, gconstpointer b)
 {
     return g_ascii_strcasecmp ((const char*)a, (const char*)b);
-}
-
-// I have to find this information directly from the icon directories and
-// index.theme files. The alternative of using GtkIconTheme with a custom theme
-// and then calling gtk_icon_theme_list_icons() on it does not only return icons
-// from the chosen theme. Instead it also includes:
-//
-//      * Unthemed icons
-//      * Deprecated stock id's (see GTK/testsuite/gtk/check-icon-names.c)
-//      * Internal icons (see GTK/testsuite/gtk/check-icon-names.c)
-//      * All icons from Hicolor, GNOME and Adwaita themes
-//
-// I expected Hicolor icons to be there because it's the fallback theme, but I
-// didn't expect any of the rest. All this is probably done for backward
-// compatibility reasons but it does not work for what we want.
-void set_theme_icon_names (struct icon_theme_t *theme)
-{
-  theme->icon_names = g_hash_table_new (g_str_hash, g_str_equal);
-
-  if (theme->dir_name != NULL) {
-      int i;
-      for (i=0; i<theme->num_dirs; i++) {
-          char *c = theme->index_file;
-
-          // Ignore the first section: [Icon Theme]
-          c = seek_next_section (c, NULL, NULL);
-          c = consume_section (c);
-
-          string_t theme_dir = str_new (theme->dirs[i]);
-          str_cat_c (&theme_dir, "/");
-          uint32_t theme_dir_len = str_len (&theme_dir);
-          while ((c = consume_section (c)) && *c) {
-              char *section_name;
-              uint32_t section_name_len;
-              c = seek_next_section (c, &section_name, &section_name_len);
-              string_t curr_dir = strn_new (section_name, section_name_len);
-              str_put (&theme_dir, theme_dir_len, &curr_dir);
-              if (section_name[section_name_len-1] != '/') {
-                  str_cat_c (&theme_dir, "/");
-              }
-              uint32_t curr_dir_len = str_len (&theme_dir);
-
-              struct stat st;
-              if (stat(str_data(&theme_dir), &st) == -1 && errno == ENOENT) {
-                  continue;
-              }
-
-              DIR *d = opendir (str_data(&theme_dir));
-              struct dirent *entry_info;
-              while (read_dir (d, &entry_info)) {
-                  if (entry_info->d_name[0] != '.') {
-                      str_put_c (&theme_dir, curr_dir_len, entry_info->d_name);
-                      size_t icon_name_len;
-                      if (stat(str_data(&theme_dir), &st) == 0 &&
-                          S_ISREG(st.st_mode) &&
-                          fname_has_valid_extension (entry_info->d_name, &icon_name_len)) {
-                          char *icon_name = pom_strndup (&theme->pool, entry_info->d_name, icon_name_len);
-                          g_hash_table_insert (theme->icon_names, icon_name, NULL);
-                      }
-                  }
-              }
-              closedir (d);
-          }
-      }
-
-  } else {
-      // This is the case for non themed icons.
-      int i;
-      for (i=0; i<theme->num_dirs; i++) {
-        string_t path_str = str_new (theme->dirs[i]);
-        if (str_last(&path_str) != '/') {
-            str_cat_c (&path_str, "/");
-        }
-        uint32_t path_len = str_len (&path_str);
-
-        DIR *d = opendir (str_data(&path_str));
-        struct dirent *entry_info;
-        while (read_dir (d, &entry_info)) {
-            struct stat st;
-            str_put_c (&path_str, path_len, entry_info->d_name);
-
-            if (stat(str_data(&path_str), &st) == 0 && S_ISREG(st.st_mode)) {
-                size_t icon_name_len;
-                if (fname_has_valid_extension(entry_info->d_name, &icon_name_len)) {
-                    char *icon_name = pom_strndup (&theme->pool, entry_info->d_name, icon_name_len);
-                    g_hash_table_insert (theme->icon_names, icon_name, NULL);
-                }
-            }
-        }
-        str_free (&path_str);
-        closedir (d);
-      }
-  }
 }
 
 // This makes scalable images allways sort as the largest.
@@ -885,7 +891,6 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
         app.selected_theme = curr_theme;
     }
 
-    set_theme_icon_names (app.selected_theme);
     GList *icon_names = g_hash_table_get_keys (app.selected_theme->icon_names);
     icon_names = g_list_sort (icon_names, str_cmp_callback);
 
