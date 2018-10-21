@@ -868,30 +868,18 @@ gboolean search_filter (GtkListBoxRow *row, gpointer user_data)
     }
 }
 
-void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
+void app_set_selected_theme (struct app_t *app, struct icon_theme_t *theme)
 {
-    // NOTE: It's better to query who the prent widget is (rather than keeping a
-    // reference to it) because it can change in unexpected ways. For instance,
-    // in this case GtkScrolledWindow wraps icon_list in a GtkViewPort.
-    GtkWidget *parent = gtk_widget_get_parent (app.icon_list);
-    gtk_container_remove (GTK_CONTAINER(parent), app.icon_list);
+    app->selected_theme = theme;
 
-    app.icon_list = gtk_list_box_new ();
-    gtk_widget_set_vexpand (app.icon_list, TRUE);
-    gtk_widget_set_hexpand (app.icon_list, TRUE);
-    g_signal_connect (G_OBJECT(app.icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
-    gtk_list_box_set_filter_func (GTK_LIST_BOX(app.icon_list), search_filter, NULL, NULL);
+    // Rebuild the icon list
+    GtkWidget *new_icon_list = gtk_list_box_new ();
+    gtk_widget_set_vexpand (new_icon_list, TRUE);
+    gtk_widget_set_hexpand (new_icon_list, TRUE);
+    g_signal_connect (G_OBJECT(new_icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
+    gtk_list_box_set_filter_func (GTK_LIST_BOX(new_icon_list), search_filter, NULL, NULL);
 
-    // Update app.selected_theme
-    {
-        int idx = gtk_combo_box_get_active (themes_combobox);
-        struct icon_theme_t *curr_theme;
-        for (curr_theme = app.themes; curr_theme && idx; curr_theme = curr_theme->next, idx--);
-        assert (curr_theme != NULL);
-        app.selected_theme = curr_theme;
-    }
-
-    GList *icon_names = g_hash_table_get_keys (app.selected_theme->icon_names);
+    GList *icon_names = g_hash_table_get_keys (app->selected_theme->icon_names);
     icon_names = g_list_sort (icon_names, str_cmp_callback);
 
     bool first = true;
@@ -900,13 +888,13 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     for (l = icon_names; l != NULL; l = l->next)
     {
         GtkWidget *row = gtk_label_new (l->data);
-        gtk_container_add (GTK_CONTAINER(app.icon_list), row);
+        gtk_container_add (GTK_CONTAINER(new_icon_list), row);
         gtk_widget_set_halign (row, GTK_ALIGN_START);
 
         if (first) {
             first = false;
             GtkWidget *r = gtk_widget_get_parent (row);
-            gtk_list_box_select_row (GTK_LIST_BOX(app.icon_list), GTK_LIST_BOX_ROW(r));
+            gtk_list_box_select_row (GTK_LIST_BOX(new_icon_list), GTK_LIST_BOX_ROW(r));
         }
 
         gtk_widget_set_margin_start (row, 6);
@@ -916,8 +904,17 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
         i++;
     }
 
-    gtk_container_add (GTK_CONTAINER(parent), app.icon_list);
-    gtk_widget_show_all(app.icon_list);
+    replace_wrapped_widget (&app->icon_list, new_icon_list);
+}
+
+void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
+{
+    int idx = gtk_combo_box_get_active (themes_combobox);
+    struct icon_theme_t *curr_theme;
+    for (curr_theme = app.themes; curr_theme && idx; curr_theme = curr_theme->next, idx--);
+    assert (curr_theme != NULL);
+
+    app_set_selected_theme (&app, curr_theme);
 }
 
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
