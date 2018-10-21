@@ -236,3 +236,30 @@ GtkWidget *fake_paned (GtkOrientation orientation, GtkWidget *child1, GtkWidget 
     }
     return new_paned;
 }
+
+GtkWidget *labeled_combobox_new (char *label, GtkWidget **combobox)
+{
+    assert (combobox != NULL && "You really need the combobox to fill it.");
+
+    GtkWidget *label_widget = gtk_label_new (label);
+    add_css_class (label_widget, "h4");
+    gtk_widget_set_margin_start (label_widget, 6);
+
+    GtkWidget *combobox_widget = gtk_combo_box_text_new ();
+    gtk_widget_set_margin_top (combobox_widget, 6);
+    gtk_widget_set_margin_bottom (combobox_widget, 6);
+    gtk_widget_set_margin_start (combobox_widget, 12);
+    gtk_widget_set_margin_end (combobox_widget, 6);
+
+    GtkWidget *container = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_container_add (GTK_CONTAINER(container), label_widget);
+    gtk_container_add (GTK_CONTAINER(container), combobox_widget);
+
+    *combobox = combobox_widget;
+    return container;
+}
+
+void combo_box_text_append_text_with_id (GtkComboBoxText *combobox, const gchar *text)
+{
+    gtk_combo_box_text_append (combobox, text, text);
+}

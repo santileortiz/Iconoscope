@@ -962,19 +962,12 @@ int main(int argc, char *argv[])
     gtk_style_context_add_class (ctx, "h5");
     gtk_widget_set_margin_start (themes_label, 6);
 
-    GtkWidget *themes_combobox = gtk_combo_box_text_new ();
-    gtk_widget_set_margin_top (themes_combobox, 6);
-    gtk_widget_set_margin_bottom (themes_combobox, 6);
-    gtk_widget_set_margin_start (themes_combobox, 12);
-    gtk_widget_set_margin_end (themes_combobox, 6);
+    GtkWidget *themes_combobox;
+    GtkWidget *theme_selector = labeled_combobox_new ("Theme:", &themes_combobox);
     for (struct icon_theme_t *curr_theme = app.themes; curr_theme; curr_theme = curr_theme->next) {
         gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT(themes_combobox), curr_theme->name);
     }
     g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_theme_changed), NULL);
-
-    GtkWidget *theme_selector = gtk_grid_new ();
-    gtk_grid_attach (GTK_GRID(theme_selector), themes_label, 0, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID(theme_selector), themes_combobox, 1, 0, 1, 1);
 
     GtkWidget *scrolled_icon_list = gtk_scrolled_window_new (NULL, NULL);
     gtk_scrolled_window_disable_hscroll (GTK_SCROLLED_WINDOW(scrolled_icon_list));

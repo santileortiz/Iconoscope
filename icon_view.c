@@ -302,7 +302,6 @@ GtkWidget* scale_selector_new (struct icon_view_t *icon_view)
 {
     GtkWidget *selector = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
     gtk_widget_set_halign (selector, GTK_ALIGN_END);
-    gtk_widget_set_hexpand (selector, TRUE);
     gtk_button_box_set_layout (GTK_BUTTON_BOX(selector), GTK_BUTTONBOX_EXPAND);
 
     GSList *group = NULL;
@@ -336,8 +335,24 @@ GtkWidget* draw_icon_view (struct icon_view_t *icon_view)
     gtk_widget_set_halign (icon_name_label, GTK_ALIGN_START);
     gtk_grid_attach (GTK_GRID(data_pane), icon_name_label, 0, 0, 1, 1);
 
+    GtkWidget *themes_combobox;
+    GtkWidget *theme_selector = labeled_combobox_new ("Theme:", &themes_combobox);
+    for (struct icon_theme_t *curr_theme = app.themes; curr_theme; curr_theme = curr_theme->next) {
+        if (g_hash_table_contains (curr_theme->icon_names, icon_view->icon_name)) {
+            combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(themes_combobox), curr_theme->name);
+        }
+    }
+    gtk_combo_box_set_active_id (GTK_COMBO_BOX(themes_combobox), app.selected_theme->name);
+    //g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_theme_changed), NULL);
+    gtk_widget_set_halign (theme_selector, GTK_ALIGN_END);
+    gtk_widget_set_hexpand (theme_selector, TRUE);
+
     GtkWidget *scale_selector = scale_selector_new (icon_view);
-    gtk_grid_attach (GTK_GRID(data_pane), scale_selector, 1, 0, 1, 1);
+
+    GtkWidget *icon_widgets = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 18);
+    gtk_container_add (GTK_CONTAINER(icon_widgets), theme_selector);
+    gtk_container_add (GTK_CONTAINER(icon_widgets), scale_selector);
+    gtk_grid_attach (GTK_GRID(data_pane), icon_widgets, 1, 0, 1, 1);
 
     gtk_grid_attach (GTK_GRID(data_pane),
                      wrap_gtk_widget(icon_view->image_data_dpy),
