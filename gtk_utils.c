@@ -71,6 +71,57 @@ int gtk_radio_button_get_idx (GtkRadioButton *button)
     return g_slist_length (group) - g_slist_index (group, button);
 }
 
+// Widget Wrapping Idiom
+// ---------------------
+//
+// Gtk uses reference counting of its objects. As a convenience for C
+// programming they have a feature called "floating references", this feature
+// makes most objects be created with a floating reference, instead of a normal
+// one. Then the object that will take ownership of it, calls
+// g_object_ref_sink() and becomes the owner of this floating reference making
+// it a normal one. This allows C code to not call g_object_unref() on the newly
+// created object and not leak a reference (and thus, not leak memory).
+//
+// The problem is this only work for objects that inherit from the
+// GInitialyUnowned class. In all the Gtk class hierarchy ~150 classes inherit
+// from GInitiallyUnowned and ~100 don't, which makes floating references the
+// common case. What I normally do is assume things use floating references, and
+// never call g_object_ref_sink() under the assumption that the function I'm
+// passing the object to will sink it.
+//
+// Doing this for GtkWidgets is very useful to implement changes in the UI
+// without creating a tangle of signals. What I do is completely replace widgets
+// that need to be updated, instead of trying to update the state of objects to
+// reflect changes. I keep weak references (C pointers, not even Gtk weak
+// references) to widgets that may need to be replaced, then I remove the widget
+// from it's container and replace it by a new one. Here not taking references
+// to any widget becomes useful as removing the widget form it's parent will
+// have the effect of destroying all the children objects (as long as Gtk
+// internally isn't leaking memory).
+//
+// The only issue I've found is that containers like GtkPaned or GtkGrid use
+// special _add methods with different declaration than gtk_container_add().
+// It's very common to move widgets accross different kinds of containers, which
+// adds the burden of having to kneo where in the code we assumed something was
+// stored in a GtkGrid or a GtkPaned etc. What I do to alieviate this pain is
+// wrap widgets that will be replaced into a GtkBox with wrap_gtk_widget() and
+// then use replace_wrapped_widget() to replace it.
+//
+// Doing this ties the lifespan of an GInitiallyUnowned object to the lifespan
+// of the parent. Sometimes this is not desired, in those cases we must call
+// g_object_ref_sink() (NOT g_object_ref(), because as far as I understand it
+// will set refcount to 2 and never free them). Fortunatelly cases where this is
+// required will print lots of Critical warnings or crash the application so
+// they are easy to detect and fix, a memory leak is harder to detect/fix.
+//
+// NOTE: The approach of storing a pointer to the parent widget not only doubles
+// the number of pointers that need to be stored for a replacable widget, but
+// also doesn't work because we can't know the true parent of a widget. For
+// instance, GtkScrolledWindow wraps its child in a GtkViewPort.
+//
+// TODO: I need a way to detect when I'm using objects that don't inherit from
+// GInitiallyUnowned and be sure we are not leaking references. Also make sure
+// g_object_ref_sink() is used instead of g_object_ref().
 GtkWidget* wrap_gtk_widget (GtkWidget *widget)
 {
     GtkWidget *wrapper = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);

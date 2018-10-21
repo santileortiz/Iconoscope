@@ -807,7 +807,7 @@ void icon_view_compute (mem_pool_t *pool,
             // can go back to them. The lifespan of these images should be equal
             // to icon_view_t, not to their parent container.
             // @scale_change_destroys_images
-            g_object_ref (G_OBJECT(img->image));
+            g_object_ref_sink (G_OBJECT(img->image));
 
             img = img->next;
         }
