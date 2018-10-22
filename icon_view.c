@@ -322,6 +322,12 @@ GtkWidget* scale_selector_new (struct icon_view_t *icon_view)
     return selector;
 }
 
+void on_icon_view_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
+{
+    const char* theme_name = gtk_combo_box_get_active_id (themes_combobox);
+    app_set_selected_theme (&app, theme_name, app.selected_icon);
+}
+
 GtkWidget* draw_icon_view (struct icon_view_t *icon_view)
 {
     icon_view->icon_dpy = icon_view_create_icon_dpy (icon_view, 1);
@@ -343,7 +349,7 @@ GtkWidget* draw_icon_view (struct icon_view_t *icon_view)
         }
     }
     gtk_combo_box_set_active_id (GTK_COMBO_BOX(themes_combobox), app.selected_theme->name);
-    //g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_theme_changed), NULL);
+    g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_icon_view_theme_changed), NULL);
     gtk_widget_set_halign (theme_selector, GTK_ALIGN_END);
     gtk_widget_set_hexpand (theme_selector, TRUE);
 

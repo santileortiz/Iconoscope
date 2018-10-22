@@ -138,6 +138,57 @@ void replace_wrapped_widget (GtkWidget **original, GtkWidget *new_widget)
     gtk_widget_show_all (new_widget);
 }
 
+// An issue with the wrapped widget idiom is that if a widget triggers a replace
+// of one of its ancestors, then we are effectiveley destroying ourselves from
+// the signal handler. I've found cases where Gtk does not like that and shows
+// lots of critical errors. I think these errors happen because the signal where
+// we triggered the destruction of the ancestor is not the only one being
+// handled, then after destruction, other handlers try to trigger inside the
+// widget that does not exist anymore.
+//
+// I don't know if this is a Gtk bug, or we are not supposed to trigger the
+// destruction of an object from the signal handler of a signal of the object
+// that will be destroyed. The case I found not to work was a GtkCombobox
+// destroying itself from the "changed" signal. A button destroying itself from
+// the "clicked" signal worked fine though.
+//
+// In any case, if this happens, the function replace_wrapped_widget_defered()
+// splits widget replacement so that widget destruction is triggered, and then
+// in the handler for the destroy signal, we actually replace the widget. Not
+// nice, but seems to solve the issue.
+struct replace_wrapped_widget_closure_t {
+    GtkWidget **original;
+    GtkWidget *parent;
+    GtkWidget *new_widget;
+};
+
+gboolean idle_widget_destroy (gpointer user_data)
+{
+    gtk_widget_destroy ((GtkWidget *) user_data);
+    return FALSE;
+}
+
+void replace_wrapped_widget_defered_cb (GtkWidget *object, gpointer user_data)
+{
+    struct replace_wrapped_widget_closure_t *clsr = (struct replace_wrapped_widget_closure_t *) user_data;
+    *clsr->original = clsr->new_widget;
+    gtk_container_add (GTK_CONTAINER(clsr->parent), clsr->new_widget);
+    gtk_widget_show_all (clsr->new_widget);
+    free (clsr);
+}
+
+void replace_wrapped_widget_defered (GtkWidget **original, GtkWidget *new_widget)
+{
+    struct replace_wrapped_widget_closure_t *clsr = malloc (sizeof (struct replace_wrapped_widget_closure_t));
+    clsr->original = original;
+    clsr->parent = gtk_widget_get_parent (*original);
+    clsr->new_widget = new_widget;
+    g_signal_connect (G_OBJECT(*original), "destroy", G_CALLBACK (replace_wrapped_widget_defered_cb), clsr);
+    g_idle_add (idle_widget_destroy, *original);
+}
+
+// Convenience wrapper for setting properties in objects when they don't have
+// setters.
 void g_object_set_property_bool (GObject *object, const char *property_name, gboolean value)
 {
     GValue val = G_VALUE_INIT;
@@ -162,6 +213,9 @@ GtkWidget *fix_gtk_paned_new (GtkOrientation orientation)
     return res;
 }
 
+// This is the only way I found to disable horizontal scrolling in a scrolled
+// window. I think calling gtk_adjustment_set_upper() 'should' work, but it
+// doesn't.
 void _gtk_scrolled_window_disable_hscroll_cb (GtkAdjustment *adjustment, gpointer user_data)
 {
     if (gtk_adjustment_get_value (adjustment) != 0) {
