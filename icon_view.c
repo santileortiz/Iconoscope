@@ -203,7 +203,7 @@ GtkWidget* icon_view_create_icon_dpy (struct icon_view_t *icon_view, int scale)
     // NOTE: At least one package (aptdaemon-data) provides animated icons in a
     // single file by appending the frames side by side.  Here we detect that
     // case and instead display these icons vertically.
-    GtkOrientation all_icons_or = icon_view->images[scale-1]->width/icon_view->images[scale-1]->height > 1 ?
+    GtkOrientation all_icons_or = icon_view->images[scale-1]->width/icon_view->images[scale-1]->height > 2 ?
         GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL;
     GtkWidget *all_icons = gtk_box_new (all_icons_or, 12);
 
