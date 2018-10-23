@@ -43,6 +43,7 @@ struct icon_theme_t {
 struct app_t {
     // App state
     struct icon_theme_t *selected_theme;
+    bool all_theme_selected;
     char *selected_icon;
     dvec4 bg_color;
 
@@ -50,6 +51,9 @@ struct app_t {
     GtkWidget *search_entry;
     GtkWidget *icon_view_widget;
     GtkWidget *theme_selector;
+
+    // Special (fake) "All" theme
+    struct icon_theme_t all_theme;
 
     // Linked list head for all themes
     struct icon_theme_t *themes;
@@ -521,6 +525,8 @@ void app_load_all_icon_themes (struct app_t *app)
         curr_theme->num_dirs = num_found;
     }
 
+    icon_theme_sort (&app->themes, -1);
+
     // Unthemed icons are found inside search path directories but not in a
     // directory. For these icons we add a zero initialized theme, and set as
     // dirs all search paths with icons in them.
@@ -568,13 +574,34 @@ void app_load_all_icon_themes (struct app_t *app)
     memcpy (no_theme->dirs, found_dirs, sizeof(char*)*num_found);
     no_theme->num_dirs = num_found;
 
-    icon_theme_sort (&app->themes, -1);
-
     // Find all icon names for each found theme and store them in the icon_names
     // hash table.
     for (struct icon_theme_t *curr_theme = app->themes; curr_theme; curr_theme = curr_theme->next) {
         set_theme_icon_names (curr_theme);
     }
+
+    // Create the special "All" theme. It is special because we don't want it to
+    // appear in the icon vew themes, also we don't want to actually lookup
+    // icons in this theme, we detect this theme was chosen and compute the real
+    // theme for the selected icon.
+    struct icon_theme_t *all_theme = &app->all_theme;
+    all_theme->name = "All";
+    all_theme->icon_names = g_hash_table_new (g_str_hash, g_str_equal);
+
+    // We skip the newly created theme that will be at the beginning
+    struct icon_theme_t *curr_theme = app->themes->next;
+    for (; curr_theme; curr_theme = curr_theme->next) {
+        GList *icon_names = g_hash_table_get_keys (curr_theme->icon_names);
+        for (GList *l = icon_names; l != NULL; l = l->next) {
+            mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&all_theme->pool);
+            char *icon_name = pom_strdup (&all_theme->pool, l->data);
+            if (!g_hash_table_insert (all_theme->icon_names, icon_name, NULL)) {
+                mem_pool_end_temporary_memory (mrkr);
+            }
+        }
+        g_list_free (icon_names);
+    }
+
 }
 
 void app_destroy (struct app_t *app)
@@ -612,6 +639,8 @@ void icon_view_compute (mem_pool_t *pool,
                         struct icon_theme_t *theme, const char *icon_name,
                         struct icon_view_t *icon_view)
 {
+    assert (strcmp (theme->name, "All") != 0);
+
     *icon_view = ZERO_INIT (struct icon_view_t);
     icon_view->scale = 1;
     icon_view->icon_name = pom_strndup (pool, icon_name, strlen(icon_name));
@@ -859,6 +888,16 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
 
     GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
     const char *icon_name = gtk_label_get_text (GTK_LABEL(row_label));
+
+    if (app.all_theme_selected) {
+        struct icon_theme_t *theme;
+        for (theme = app.themes; theme; theme = theme->next) {
+            if (g_hash_table_contains (theme->icon_names, icon_name)) break;
+        }
+        assert (theme != NULL);
+        app.selected_theme = theme;
+    }
+
     app_set_icon_view (&app, icon_name);
 }
 
@@ -883,21 +922,19 @@ gboolean search_filter (GtkListBoxRow *row, gpointer user_data)
     }
 }
 
-void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
-{
-    const char* theme_name = gtk_combo_box_get_active_id (themes_combobox);
-    app_set_selected_theme (&app, theme_name, NULL);
-}
-
 GtkWidget *icon_list_new (const char *theme_name, const char *selected_icon, const char **choosen_icon)
 {
     assert (choosen_icon != NULL);
 
     struct icon_theme_t *theme;
-    for (theme = app.themes; theme; theme = theme->next) {
-        if (strcmp (theme_name, theme->name) == 0) break;
+    if (strcmp (theme_name, "All") == 0) {
+        theme = &app.all_theme;
+    } else {
+        for (theme = app.themes; theme; theme = theme->next) {
+            if (strcmp (theme_name, theme->name) == 0) break;
+        }
+        assert (theme != NULL && "Theme name not found");
     }
-    assert (theme != NULL && "Theme name not found");
 
     GtkWidget *new_icon_list = gtk_list_box_new ();
     gtk_widget_set_vexpand (new_icon_list, TRUE);
@@ -932,16 +969,19 @@ GtkWidget *icon_list_new (const char *theme_name, const char *selected_icon, con
         gtk_widget_set_margin_bottom (row, 3);
         i++;
     }
+    g_list_free (icon_names);
 
     *choosen_icon = selected_icon;
     g_signal_connect (G_OBJECT(new_icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
     return new_icon_list;
 }
 
+void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data);
 GtkWidget *theme_selector_new (const char *theme_name)
 {
     GtkWidget *themes_combobox;
     GtkWidget *theme_selector = labeled_combobox_new ("Theme:", &themes_combobox);
+    combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(themes_combobox), "All");
     for (struct icon_theme_t *curr_theme = app.themes; curr_theme; curr_theme = curr_theme->next) {
         combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(themes_combobox), curr_theme->name);
     }
@@ -950,24 +990,51 @@ GtkWidget *theme_selector_new (const char *theme_name)
     return theme_selector;
 }
 
+void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
+{
+    const char *icon_name = NULL;
+    const char* theme_name = gtk_combo_box_get_active_id (themes_combobox);
+    if (strcmp (theme_name, "All") == 0) {
+        app.all_theme_selected = true;
+
+        GtkWidget *new_icon_list = icon_list_new (theme_name, NULL, &icon_name);
+        replace_wrapped_widget (&app.icon_list, new_icon_list);
+
+        struct icon_theme_t *theme;
+        for (theme = app.themes; theme; theme = theme->next) {
+            if (g_hash_table_contains (theme->icon_names, icon_name)) break;
+        }
+        assert (theme != NULL);
+        theme_name = theme->name;
+
+    } else {
+        app.all_theme_selected = false;
+    }
+
+    app_set_selected_theme (&app, theme_name, icon_name);
+}
+
 void app_set_selected_theme (struct app_t *app, const char *theme_name, const char *selected_icon)
 {
+    assert (strcmp (theme_name, "All") != 0);
+
     struct icon_theme_t *curr_theme;
     for (curr_theme = app->themes; curr_theme; curr_theme = curr_theme->next) {
         if (strcmp (theme_name, curr_theme->name) == 0) break;
     }
     assert (curr_theme != NULL && "Theme name not found");
-
-    const char *choosen_icon;
     app->selected_theme = curr_theme;
-    GtkWidget *new_icon_list = icon_list_new (theme_name, selected_icon, &choosen_icon);
-    replace_wrapped_widget (&app->icon_list, new_icon_list);
+
+    const char *choosen_icon = selected_icon;
+    if (!app->all_theme_selected) {
+        GtkWidget *new_icon_list = icon_list_new (theme_name, selected_icon, &choosen_icon);
+        replace_wrapped_widget (&app->icon_list, new_icon_list);
+
+        GtkWidget *new_theme_selector = theme_selector_new (theme_name);
+        replace_wrapped_widget_defered (&app->theme_selector, new_theme_selector);
+    }
 
     app_update_selected_icon (app, choosen_icon);
-
-    GtkWidget *new_theme_selector = theme_selector_new (theme_name);
-    replace_wrapped_widget_defered (&app->theme_selector, new_theme_selector);
-
     app_set_icon_view (app, app->selected_icon);
 }
 
