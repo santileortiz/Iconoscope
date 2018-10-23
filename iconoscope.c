@@ -5,20 +5,6 @@
 #include "common.h"
 #include "gtk_utils.c"
 
-struct icon_theme_t {
-    mem_pool_t pool;
-
-    char *name;
-    uint32_t num_dirs;
-    char **dirs;
-    char *index_file;
-    char *dir_name;
-
-    GHashTable *icon_names;
-
-    struct icon_theme_t *next;
-};
-
 struct app_t app;
 void app_set_selected_theme (struct app_t *app, const char *theme_name, const char *selected_icon);
 
@@ -38,6 +24,20 @@ enum valid_extensions {
     VALID_EXTENSIONS
 #undef EXTENSION
     NUM_EXTENSIONS
+};
+
+struct icon_theme_t {
+    mem_pool_t pool;
+
+    char *name;
+    uint32_t num_dirs;
+    char **dirs;
+    char *index_file;
+    char *dir_name;
+
+    GHashTable *icon_names;
+
+    struct icon_theme_t *next;
 };
 
 struct app_t {
@@ -307,6 +307,8 @@ bool file_lookup (char *dir, char *file)
     return res;
 }
 
+templ_sort_ll(icon_theme_sort, struct icon_theme_t, strcasecmp((*a)->name, (*b)->name) < 0)
+
 void set_theme_name (struct icon_theme_t *theme)
 {
     char *c = theme->index_file;
@@ -566,6 +568,8 @@ void app_load_all_icon_themes (struct app_t *app)
     memcpy (no_theme->dirs, found_dirs, sizeof(char*)*num_found);
     no_theme->num_dirs = num_found;
 
+    icon_theme_sort (&app->themes, -1);
+
     // Find all icon names for each found theme and store them in the icon_names
     // hash table.
     for (struct icon_theme_t *curr_theme = app->themes; curr_theme; curr_theme = curr_theme->next) {
@@ -582,6 +586,9 @@ void app_destroy (struct app_t *app)
 
         icon_theme_destroy (to_destroy);
     }
+
+    mem_pool_destroy(&app->icon_view_pool);
+    free (app->selected_icon);
 }
 
 gint str_cmp_callback (gconstpointer a, gconstpointer b)
@@ -589,7 +596,7 @@ gint str_cmp_callback (gconstpointer a, gconstpointer b)
     return g_ascii_strcasecmp ((const char*)a, (const char*)b);
 }
 
-// This makes scalable images allways sort as the largest.
+// This makes scalable images always sort as the largest.
 bool is_img_lt (struct icon_image_t *a, struct icon_image_t *b)
 {
     if (a->is_scalable == b->is_scalable) {
@@ -599,7 +606,7 @@ bool is_img_lt (struct icon_image_t *a, struct icon_image_t *b)
     }
 }
 
-templ_sort(icon_image_sort, struct icon_image_t*, is_img_lt(*a, *b))
+templ_sort_ll(icon_image_sort, struct icon_image_t, is_img_lt(*a, *b))
 
 void icon_view_compute (mem_pool_t *pool,
                         struct icon_theme_t *theme, const char *icon_name,
@@ -718,23 +725,7 @@ void icon_view_compute (mem_pool_t *pool,
                     // can detect if sorting is required before and only sort if
                     // necessary.
                     // @performance
-                    struct icon_image_t *img = icon_view->images[i];
-                    struct icon_image_t *img_arr[num_images[i]];
-
-                    int j = 0;
-                    while (img != NULL) {
-                        img_arr[j] = img;
-                        j++;
-                        img = img->next;
-                    }
-
-                    icon_image_sort (img_arr, num_images[i]);
-
-                    icon_view->images[i] = img_arr[0];
-                    for (j=0; j<num_images[i] - 1; j++) {
-                        img_arr[j]->next = img_arr[j+1];
-                    }
-                    img_arr[j]->next = NULL;
+                    icon_image_sort (&icon_view->images[i], num_images[i]);
                 }
             }
 
