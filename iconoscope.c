@@ -803,8 +803,10 @@ void icon_view_compute (mem_pool_t *pool,
 
             // Find the size of the created image
             GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(img->image));
-            img->width = gdk_pixbuf_get_width(pixbuf);
-            img->height = gdk_pixbuf_get_height(pixbuf);
+            if (pixbuf) {
+                img->width = gdk_pixbuf_get_width(pixbuf);
+                img->height = gdk_pixbuf_get_height(pixbuf);
+            }
             gtk_widget_set_size_request (img->image, img->width, img->height);
 
             g_assert (img->image != NULL);
