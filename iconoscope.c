@@ -1014,7 +1014,6 @@ int main(int argc, char *argv[])
     app_load_all_icon_themes (&app);
 
     app.search_entry = gtk_search_entry_new ();
-    add_custom_css (app.search_entry, ".entry, entry { border-radius: 13px; }");
     g_signal_connect (G_OBJECT(app.search_entry), "changed", G_CALLBACK (on_search_changed), NULL);
 
     app.icon_list = gtk_grid_new (); // Placeholder
