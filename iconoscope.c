@@ -40,6 +40,13 @@ struct icon_theme_t {
     struct icon_theme_t *next;
 };
 
+// TODO: Compare the difference in performance of defining this and not defining
+// it. The "All" theme is VERY slow to load, we need to track that down. Also
+// closing the application becomes horribly slow when the "All" theme is
+// selected.
+// @performance
+#define ALL_NAMES_TREE
+
 struct app_t {
     // App state
     struct icon_theme_t *selected_theme;
@@ -53,7 +60,12 @@ struct app_t {
     GtkWidget *theme_selector;
 
     // Special (fake) "All" theme
-    struct icon_theme_t all_theme;
+    mem_pool_t all_icon_names_pool;
+#ifdef ALL_NAMES_TREE
+    GTree *all_icon_names;
+#else
+    GHashTable *all_icon_names;
+#endif
 
     // Linked list head for all themes
     struct icon_theme_t *themes;
@@ -447,6 +459,11 @@ void set_theme_icon_names (struct icon_theme_t *theme)
   }
 }
 
+gint str_cmp_callback (gconstpointer a, gconstpointer b)
+{
+    return g_ascii_strcasecmp ((const char*)a, (const char*)b);
+}
+
 void app_load_all_icon_themes (struct app_t *app)
 {
     GtkIconTheme *icon_theme = gtk_icon_theme_get_default ();
@@ -580,27 +597,39 @@ void app_load_all_icon_themes (struct app_t *app)
         set_theme_icon_names (curr_theme);
     }
 
-    // Create the special "All" theme. It is special because we don't want it to
-    // appear in the icon vew themes, also we don't want to actually lookup
-    // icons in this theme, we detect this theme was chosen and compute the real
-    // theme for the selected icon.
-    struct icon_theme_t *all_theme = &app->all_theme;
-    all_theme->name = "All";
-    all_theme->icon_names = g_hash_table_new (g_str_hash, g_str_equal);
+    // Add all icon themes into a structure so we can fake an "All" theme.
+    app->all_icon_names_pool = ZERO_INIT (mem_pool_t);
 
-    // We skip the newly created theme that will be at the beginning
-    struct icon_theme_t *curr_theme = app->themes->next;
+#ifdef ALL_NAMES_TREE
+    app->all_icon_names = g_tree_new (str_cmp_callback);
+
+    struct icon_theme_t *curr_theme = app->themes;
     for (; curr_theme; curr_theme = curr_theme->next) {
         GList *icon_names = g_hash_table_get_keys (curr_theme->icon_names);
         for (GList *l = icon_names; l != NULL; l = l->next) {
-            mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&all_theme->pool);
-            char *icon_name = pom_strdup (&all_theme->pool, l->data);
-            if (!g_hash_table_insert (all_theme->icon_names, icon_name, NULL)) {
+            if (!g_tree_lookup (app->all_icon_names, l->data)) {
+                char *icon_name = pom_strdup (&app->all_icon_names_pool, l->data);
+                g_tree_insert (app->all_icon_names, icon_name, NULL);
+            }
+        }
+        g_list_free (icon_names);
+    }
+#else
+    app->all_icon_names = g_hash_table_new (g_str_hash, g_str_equal);
+
+    struct icon_theme_t *curr_theme = app->themes;
+    for (; curr_theme; curr_theme = curr_theme->next) {
+        GList *icon_names = g_hash_table_get_keys (curr_theme->icon_names);
+        for (GList *l = icon_names; l != NULL; l = l->next) {
+            mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&app->all_icon_names_pool);
+            char *icon_name = pom_strdup (&app->all_icon_names_pool, l->data);
+            if (!g_hash_table_insert (app->all_icon_names, icon_name, NULL)) {
                 mem_pool_end_temporary_memory (mrkr);
             }
         }
         g_list_free (icon_names);
     }
+#endif
 
 }
 
@@ -616,11 +645,14 @@ void app_destroy (struct app_t *app)
 
     mem_pool_destroy(&app->icon_view_pool);
     free (app->selected_icon);
-}
 
-gint str_cmp_callback (gconstpointer a, gconstpointer b)
-{
-    return g_ascii_strcasecmp ((const char*)a, (const char*)b);
+    mem_pool_destroy(&app->all_icon_names_pool);
+
+#ifdef ALL_NAMES_TREE
+    g_tree_destroy (app->all_icon_names);
+#else
+    g_hash_table_destroy (app->all_icon_names);
+#endif
 }
 
 // This makes scalable images always sort as the largest.
@@ -922,19 +954,108 @@ gboolean search_filter (GtkListBoxRow *row, gpointer user_data)
     }
 }
 
+// The only way to iterate through a GTree is using a callback an
+// g_tree_foreach, this is the callback that builds the "All" theme icon name
+// list.
+struct all_theme_list_build_clsr_t {
+    GtkWidget *new_icon_list;
+    bool first;
+    const char *selected_icon;
+};
+
+gboolean all_theme_list_build (gpointer key, gpointer value, gpointer data)
+{
+    struct all_theme_list_build_clsr_t *clsr = (struct all_theme_list_build_clsr_t*)data;
+
+    GtkWidget *row = gtk_label_new (key);
+    gtk_container_add (GTK_CONTAINER(clsr->new_icon_list), row);
+    gtk_widget_set_halign (row, GTK_ALIGN_START);
+
+    if (clsr->selected_icon == NULL && clsr->first) {
+        clsr->first = false;
+        clsr->selected_icon = key;
+    }
+
+    if (strcmp (clsr->selected_icon, key) == 0) {
+        GtkWidget *r = gtk_widget_get_parent (row);
+        gtk_list_box_select_row (GTK_LIST_BOX(clsr->new_icon_list), GTK_LIST_BOX_ROW(r));
+    }
+
+    gtk_widget_set_margin_start (row, 6);
+    gtk_widget_set_margin_end (row, 6);
+    gtk_widget_set_margin_top (row, 3);
+    gtk_widget_set_margin_bottom (row, 3);
+
+    return FALSE;
+}
+
+GtkWidget *all_icon_names_list_new (const char *selected_icon, const char **choosen_icon)
+{
+    assert (choosen_icon != NULL);
+
+    GtkWidget *new_icon_list = gtk_list_box_new ();
+    gtk_widget_set_vexpand (new_icon_list, TRUE);
+    gtk_widget_set_hexpand (new_icon_list, TRUE);
+    gtk_list_box_set_filter_func (GTK_LIST_BOX(new_icon_list), search_filter, NULL, NULL);
+
+#ifdef ALL_NAMES_TREE
+    struct all_theme_list_build_clsr_t clsr;
+    clsr.new_icon_list = new_icon_list;
+    clsr.first = true;
+    clsr.selected_icon = selected_icon;
+
+    g_tree_foreach (app.all_icon_names, all_theme_list_build, &clsr);
+
+    *choosen_icon = clsr.selected_icon;
+    g_signal_connect (G_OBJECT(new_icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
+
+#else
+    GList *icon_names = g_hash_table_get_keys (app.all_icon_names);
+    icon_names = g_list_sort (icon_names, str_cmp_callback);
+
+    bool first = true;
+    uint32_t i = 0;
+    GList *l = NULL;
+    for (l = icon_names; l != NULL; l = l->next)
+    {
+        GtkWidget *row = gtk_label_new (l->data);
+        gtk_container_add (GTK_CONTAINER(new_icon_list), row);
+        gtk_widget_set_halign (row, GTK_ALIGN_START);
+
+        if (selected_icon == NULL && first) {
+            first = false;
+            selected_icon = l->data;
+        }
+
+        if (strcmp (selected_icon, l->data) == 0) {
+            GtkWidget *r = gtk_widget_get_parent (row);
+            gtk_list_box_select_row (GTK_LIST_BOX(new_icon_list), GTK_LIST_BOX_ROW(r));
+        }
+
+        gtk_widget_set_margin_start (row, 6);
+        gtk_widget_set_margin_end (row, 6);
+        gtk_widget_set_margin_top (row, 3);
+        gtk_widget_set_margin_bottom (row, 3);
+        i++;
+    }
+    g_list_free (icon_names);
+
+    *choosen_icon = selected_icon;
+    g_signal_connect (G_OBJECT(new_icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
+
+#endif
+    return new_icon_list;
+}
+
 GtkWidget *icon_list_new (const char *theme_name, const char *selected_icon, const char **choosen_icon)
 {
     assert (choosen_icon != NULL);
 
     struct icon_theme_t *theme;
-    if (strcmp (theme_name, "All") == 0) {
-        theme = &app.all_theme;
-    } else {
-        for (theme = app.themes; theme; theme = theme->next) {
-            if (strcmp (theme_name, theme->name) == 0) break;
-        }
-        assert (theme != NULL && "Theme name not found");
+    for (theme = app.themes; theme; theme = theme->next) {
+        if (strcmp (theme_name, theme->name) == 0) break;
     }
+    assert (theme != NULL && "Theme name not found");
 
     GtkWidget *new_icon_list = gtk_list_box_new ();
     gtk_widget_set_vexpand (new_icon_list, TRUE);
@@ -997,7 +1118,7 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     if (strcmp (theme_name, "All") == 0) {
         app.all_theme_selected = true;
 
-        GtkWidget *new_icon_list = icon_list_new (theme_name, NULL, &icon_name);
+        GtkWidget *new_icon_list = all_icon_names_list_new (NULL, &icon_name);
         replace_wrapped_widget (&app.icon_list, new_icon_list);
 
         struct icon_theme_t *theme;
