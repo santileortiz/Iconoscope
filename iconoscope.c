@@ -3,6 +3,7 @@
 #include <gtk/gtk.h>
 
 #include "common.h"
+#include "slo_timers.h"
 #include "gtk_utils.c"
 
 struct app_t app;
@@ -40,11 +41,7 @@ struct icon_theme_t {
     struct icon_theme_t *next;
 };
 
-// TODO: Compare the difference in performance of defining this and not defining
-// it. The "All" theme is VERY slow to load, we need to track that down. Also
-// closing the application becomes horribly slow when the "All" theme is
-// selected.
-// @performance
+// Toggles between app->all_icon_names being a GHashTable or a GTree
 #define ALL_NAMES_TREE
 
 struct app_t {
@@ -459,9 +456,14 @@ void set_theme_icon_names (struct icon_theme_t *theme)
   }
 }
 
-gint str_cmp_callback (gconstpointer a, gconstpointer b)
+gint strcase_cmp_callback (gconstpointer a, gconstpointer b)
 {
     return g_ascii_strcasecmp ((const char*)a, (const char*)b);
+}
+
+gint str_cmp_callback (gconstpointer a, gconstpointer b)
+{
+    return g_strcmp0 ((const char*)a, (const char*)b);
 }
 
 void app_load_all_icon_themes (struct app_t *app)
@@ -607,13 +609,14 @@ void app_load_all_icon_themes (struct app_t *app)
     for (; curr_theme; curr_theme = curr_theme->next) {
         GList *icon_names = g_hash_table_get_keys (curr_theme->icon_names);
         for (GList *l = icon_names; l != NULL; l = l->next) {
-            if (!g_tree_lookup (app->all_icon_names, l->data)) {
+            if (!g_tree_lookup_extended (app->all_icon_names, l->data, NULL, NULL)) {
                 char *icon_name = pom_strdup (&app->all_icon_names_pool, l->data);
                 g_tree_insert (app->all_icon_names, icon_name, NULL);
             }
         }
         g_list_free (icon_names);
     }
+    printf ("name count: %d\n", g_tree_nnodes (app->all_icon_names));
 #else
     app->all_icon_names = g_hash_table_new (g_str_hash, g_str_equal);
 
@@ -629,6 +632,7 @@ void app_load_all_icon_themes (struct app_t *app)
         }
         g_list_free (icon_names);
     }
+    printf ("name count: %d\n", g_hash_table_size (app->all_icon_names));
 #endif
 
 }
@@ -646,13 +650,19 @@ void app_destroy (struct app_t *app)
     mem_pool_destroy(&app->icon_view_pool);
     free (app->selected_icon);
 
+    printf ("\n");
+    mem_pool_print (&app->all_icon_names_pool);
+    printf ("\n");
+    BEGIN_WALL_CLOCK;
     mem_pool_destroy(&app->all_icon_names_pool);
+    PROBE_WALL_CLOCK("All names pool destruction");
 
 #ifdef ALL_NAMES_TREE
     g_tree_destroy (app->all_icon_names);
 #else
     g_hash_table_destroy (app->all_icon_names);
 #endif
+    PROBE_WALL_CLOCK("All names struct destruction");
 }
 
 // This makes scalable images always sort as the largest.
@@ -991,6 +1001,7 @@ gboolean all_theme_list_build (gpointer key, gpointer value, gpointer data)
 
 GtkWidget *all_icon_names_list_new (const char *selected_icon, const char **choosen_icon)
 {
+    BEGIN_WALL_CLOCK;
     assert (choosen_icon != NULL);
 
     GtkWidget *new_icon_list = gtk_list_box_new ();
@@ -1011,7 +1022,7 @@ GtkWidget *all_icon_names_list_new (const char *selected_icon, const char **choo
 
 #else
     GList *icon_names = g_hash_table_get_keys (app.all_icon_names);
-    icon_names = g_list_sort (icon_names, str_cmp_callback);
+    icon_names = g_list_sort (icon_names, strcase_cmp_callback);
 
     bool first = true;
     uint32_t i = 0;
@@ -1044,6 +1055,7 @@ GtkWidget *all_icon_names_list_new (const char *selected_icon, const char **choo
     g_signal_connect (G_OBJECT(new_icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
 
 #endif
+    PROBE_WALL_CLOCK("GtkListBox creation");
     return new_icon_list;
 }
 
@@ -1063,7 +1075,7 @@ GtkWidget *icon_list_new (const char *theme_name, const char *selected_icon, con
     gtk_list_box_set_filter_func (GTK_LIST_BOX(new_icon_list), search_filter, NULL, NULL);
 
     GList *icon_names = g_hash_table_get_keys (theme->icon_names);
-    icon_names = g_list_sort (icon_names, str_cmp_callback);
+    icon_names = g_list_sort (icon_names, strcase_cmp_callback);
 
     bool first = true;
     uint32_t i = 0;

@@ -1,0 +1,50 @@
+ALL ICON NAMES TIMING
+=====================
+
+These are the timing results of comparing trees to hash tables to balanced
+trees to store all the icon names.
+
+Changes of using a tree:
+
+    - Even thought both memory pools that store actual names are identical,
+      destroying the pool created for the hash table is 2x slower. +8us
+    - Destroying a tree is more than 100x slower than destroying the hash table
+      for the exact same keys. +300us
+    - Creating the GtkListBox is about 30ms faster for trees. -20ms
+
+Destruction seems to be the least of the problems now, but using a tree does
+make it slower. GtkListBox creation is the slowest part, and using a tree makes
+it ~1.16% faster, which beats the slowness added on destruction. Still, this is
+unacceptably slow, I need to look further into this.
+
+TREE
+----
+name count: 6982
+[2.207614 s]: GtkListBox creation
+
+Allocated: 141480 bytes
+Available: 546 bytes
+Used: 136152 bytes (96.23%)
+Info: 3240 bytes (2.29%)
+Left empty: 1542 bytes (1.09%)
+Bins: 135
+
+[14.843000 us]: All names pool destruction
+[354.131012 us]: All names struct destruction
+
+
+HASH TABLE
+----------
+name count: 6982
+[2.233500 s]: GtkListBox creation
+
+Allocated: 141480 bytes
+Available: 546 bytes
+Used: 136152 bytes (96.23%)
+Info: 3240 bytes (2.29%)
+Left empty: 1542 bytes (1.09%)
+Bins: 135
+
+[7.034000 us]: All names pool destruction
+[28.572001 us]: All names struct destruction
+
