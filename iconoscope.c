@@ -41,9 +41,6 @@ struct icon_theme_t {
     struct icon_theme_t *next;
 };
 
-// Toggles between app->all_icon_names being a GHashTable or a GTree
-#define ALL_NAMES_TREE
-
 struct app_t {
     // App state
     struct icon_theme_t *selected_theme;
@@ -58,11 +55,7 @@ struct app_t {
 
     // Special (fake) "All" theme
     mem_pool_t all_icon_names_pool;
-#ifdef ALL_NAMES_TREE
     GTree *all_icon_names;
-#else
-    GHashTable *all_icon_names;
-#endif
 
     // Linked list head for all themes
     struct icon_theme_t *themes;
@@ -601,8 +594,6 @@ void app_load_all_icon_themes (struct app_t *app)
 
     // Add all icon themes into a structure so we can fake an "All" theme.
     app->all_icon_names_pool = ZERO_INIT (mem_pool_t);
-
-#ifdef ALL_NAMES_TREE
     app->all_icon_names = g_tree_new (str_cmp_callback);
 
     struct icon_theme_t *curr_theme = app->themes;
@@ -616,25 +607,6 @@ void app_load_all_icon_themes (struct app_t *app)
         }
         g_list_free (icon_names);
     }
-    printf ("name count: %d\n", g_tree_nnodes (app->all_icon_names));
-#else
-    app->all_icon_names = g_hash_table_new (g_str_hash, g_str_equal);
-
-    struct icon_theme_t *curr_theme = app->themes;
-    for (; curr_theme; curr_theme = curr_theme->next) {
-        GList *icon_names = g_hash_table_get_keys (curr_theme->icon_names);
-        for (GList *l = icon_names; l != NULL; l = l->next) {
-            mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (&app->all_icon_names_pool);
-            char *icon_name = pom_strdup (&app->all_icon_names_pool, l->data);
-            if (!g_hash_table_insert (app->all_icon_names, icon_name, NULL)) {
-                mem_pool_end_temporary_memory (mrkr);
-            }
-        }
-        g_list_free (icon_names);
-    }
-    printf ("name count: %d\n", g_hash_table_size (app->all_icon_names));
-#endif
-
 }
 
 void app_destroy (struct app_t *app)
@@ -650,19 +622,8 @@ void app_destroy (struct app_t *app)
     mem_pool_destroy(&app->icon_view_pool);
     free (app->selected_icon);
 
-    printf ("\n");
-    mem_pool_print (&app->all_icon_names_pool);
-    printf ("\n");
-    BEGIN_WALL_CLOCK;
     mem_pool_destroy(&app->all_icon_names_pool);
-    PROBE_WALL_CLOCK("All names pool destruction");
-
-#ifdef ALL_NAMES_TREE
     g_tree_destroy (app->all_icon_names);
-#else
-    g_hash_table_destroy (app->all_icon_names);
-#endif
-    PROBE_WALL_CLOCK("All names struct destruction");
 }
 
 // This makes scalable images always sort as the largest.
@@ -1009,7 +970,6 @@ GtkWidget *all_icon_names_list_new (const char *selected_icon, const char **choo
     gtk_widget_set_hexpand (new_icon_list, TRUE);
     gtk_list_box_set_filter_func (GTK_LIST_BOX(new_icon_list), search_filter, NULL, NULL);
 
-#ifdef ALL_NAMES_TREE
     struct all_theme_list_build_clsr_t clsr;
     clsr.new_icon_list = new_icon_list;
     clsr.first = true;
@@ -1020,42 +980,6 @@ GtkWidget *all_icon_names_list_new (const char *selected_icon, const char **choo
     *choosen_icon = clsr.selected_icon;
     g_signal_connect (G_OBJECT(new_icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
 
-#else
-    GList *icon_names = g_hash_table_get_keys (app.all_icon_names);
-    icon_names = g_list_sort (icon_names, strcase_cmp_callback);
-
-    bool first = true;
-    uint32_t i = 0;
-    GList *l = NULL;
-    for (l = icon_names; l != NULL; l = l->next)
-    {
-        GtkWidget *row = gtk_label_new (l->data);
-        gtk_container_add (GTK_CONTAINER(new_icon_list), row);
-        gtk_widget_set_halign (row, GTK_ALIGN_START);
-
-        if (selected_icon == NULL && first) {
-            first = false;
-            selected_icon = l->data;
-        }
-
-        if (strcmp (selected_icon, l->data) == 0) {
-            GtkWidget *r = gtk_widget_get_parent (row);
-            gtk_list_box_select_row (GTK_LIST_BOX(new_icon_list), GTK_LIST_BOX_ROW(r));
-        }
-
-        gtk_widget_set_margin_start (row, 6);
-        gtk_widget_set_margin_end (row, 6);
-        gtk_widget_set_margin_top (row, 3);
-        gtk_widget_set_margin_bottom (row, 3);
-        i++;
-    }
-    g_list_free (icon_names);
-
-    *choosen_icon = selected_icon;
-    g_signal_connect (G_OBJECT(new_icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
-
-#endif
-    PROBE_WALL_CLOCK("GtkListBox creation");
     return new_icon_list;
 }
 
