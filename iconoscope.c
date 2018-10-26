@@ -56,6 +56,8 @@ struct app_t {
     // Special (fake) "All" theme
     mem_pool_t all_icon_names_pool;
     GTree *all_icon_names;
+    GtkWidget *all_icon_names_widget;
+    const char *all_icon_names_first;
 
     // Linked list head for all themes
     struct icon_theme_t *themes;
@@ -962,7 +964,6 @@ gboolean all_theme_list_build (gpointer key, gpointer value, gpointer data)
 
 GtkWidget *all_icon_names_list_new (const char *selected_icon, const char **choosen_icon)
 {
-    BEGIN_WALL_CLOCK;
     assert (choosen_icon != NULL);
 
     GtkWidget *new_icon_list = gtk_list_box_new ();
@@ -1054,13 +1055,13 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     if (strcmp (theme_name, "All") == 0) {
         app.all_theme_selected = true;
 
-        GtkWidget *new_icon_list = all_icon_names_list_new (NULL, &icon_name);
-        replace_wrapped_widget (&app.icon_list, new_icon_list);
+        replace_wrapped_widget (&app.icon_list, app.all_icon_names_widget);
 
         struct icon_theme_t *theme;
         for (theme = app.themes; theme; theme = theme->next) {
-            if (g_hash_table_contains (theme->icon_names, icon_name)) break;
+            if (g_hash_table_contains (theme->icon_names, app.all_icon_names_first)) break;
         }
+        icon_name = app.all_icon_names_first;
         assert (theme != NULL);
         theme_name = theme->name;
 
@@ -1149,6 +1150,11 @@ int main(int argc, char *argv[])
     GtkWidget *paned = fix_gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
     gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(app.icon_view_widget), TRUE, TRUE);
+
+    BEGIN_WALL_CLOCK;
+    app.all_icon_names_widget = all_icon_names_list_new (NULL, &app.all_icon_names_first);
+    PROBE_WALL_CLOCK("All theme widget creation");
+    g_object_ref_sink (app.all_icon_names_widget);
 
     app_set_selected_theme (&app, "Hicolor", NULL);
 
