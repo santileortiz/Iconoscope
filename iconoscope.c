@@ -456,9 +456,16 @@ gint strcase_cmp_callback (gconstpointer a, gconstpointer b)
     return g_ascii_strcasecmp ((const char*)a, (const char*)b);
 }
 
+// This is case sensitive but will sort correctly strings with different cases
+// into alphabetical order AaBbCc not ABCabc.
 gint str_cmp_callback (gconstpointer a, gconstpointer b)
 {
-    return g_strcmp0 ((const char*)a, (const char*)b);
+    int cmp = g_ascii_strcasecmp ((const char*)a, (const char*)b);
+    if (cmp == 0) {
+        return g_strcmp0 ((const char*)a, (const char*)b);
+    } else {
+        return cmp;
+    }
 }
 
 void app_load_all_icon_themes (struct app_t *app)
