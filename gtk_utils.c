@@ -6,6 +6,11 @@
 #define RGB(r,g,b) DVEC4(r,g,b,1)
 #define ARGS_RGBA(c) (c).r, (c).g, (c).b, (c).a
 #define ARGS_RGB(c) (c.r), (c).g, (c).b
+#define RGBA_255(r,g,b,a) DVEC4(((double)(r))/255, \
+                                ((double)(g))/255, \
+                                ((double)(b))/255, \
+                                ((double)(a))/255)
+#define RGB_255(r,g,b) RGBA_255(r,g,b,255)
 #define RGB_HEX(hex) DVEC4(((double)(((hex)&0xFF0000) >> 16))/255, \
                            ((double)(((hex)&0x00FF00) >>  8))/255, \
                            ((double)((hex)&0x0000FF))/255, 1)
@@ -323,4 +328,99 @@ GtkWidget *labeled_combobox_new (char *label, GtkWidget **combobox)
 void combo_box_text_append_text_with_id (GtkComboBoxText *combobox, const gchar *text)
 {
     gtk_combo_box_text_append (combobox, text, text);
+}
+
+struct fake_list_box_t {
+    mem_pool_t pool;
+    int num_rows;
+    char **rows;
+
+    // Bleh I can't be bothered to create a proper closure for the
+    // all_theme_list_build() callback.
+    int i;
+};
+
+gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
+{
+    BEGIN_WALL_CLOCK;
+
+    double margin_h = 6;
+    double margin_v = 3;
+    dvec4 text_color = RGB_255(66,66,66);
+
+    struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
+
+    cairo_set_source_rgb (cr, 1, 1, 1);
+    cairo_paint (cr);
+
+    cairo_set_source_rgb (cr, ARGS_RGB(text_color));
+
+    cairo_select_font_face (cr, "Open Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size (cr, 12);
+
+    cairo_font_extents_t font_extents;
+    cairo_font_extents (cr, &font_extents);
+
+    double width = 0;
+    double y = font_extents.ascent + margin_v;
+    int i;
+    for (i=0; i<fake_list_box->num_rows; i++) {
+        cairo_move_to (cr, margin_h, y);
+        cairo_show_text (cr, fake_list_box->rows[i]);
+
+        cairo_text_extents_t extents;
+        cairo_text_extents (cr, fake_list_box->rows[i], &extents);
+        width = MAX(width, extents.width + 2*margin_h);
+        y += font_extents.ascent + font_extents.descent + 2*margin_v;
+    }
+
+    gtk_widget_set_size_request (widget, width, y);
+
+    PROBE_WALL_CLOCK("All names render time");
+    return TRUE;
+}
+
+gboolean fake_list_box_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    GdkEventButton *e = (GdkEventButton*)event;
+    printf ("x: %f, y: %f\n", e->x, e->y);
+    return TRUE;
+}
+
+gboolean fake_list_box_row_build (gpointer key, gpointer value, gpointer data)
+{
+    struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
+    fake_list_box->rows[fake_list_box->i] = key;
+    fake_list_box->i++;
+    return FALSE;
+}
+
+GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* rows)
+{
+    GtkWidget *fake_list_box_widget = gtk_drawing_area_new ();
+    gtk_widget_set_vexpand (fake_list_box_widget, TRUE);
+    gtk_widget_set_hexpand (fake_list_box_widget, TRUE);
+
+    fake_list_box->num_rows = g_tree_nnodes(rows);
+    fake_list_box->rows =
+        mem_pool_push_size (&fake_list_box->pool, fake_list_box->num_rows*sizeof(fake_list_box->rows));
+
+    fake_list_box->i = 0;
+    g_tree_foreach (rows, fake_list_box_row_build, fake_list_box);
+
+    // For some reason just adding GDK_BUTTON_RELEASE_MASK does not work...
+    // GDK_BUTTON_PRESS_MASK is required too.
+    gtk_widget_add_events (fake_list_box_widget, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+
+    g_signal_connect (G_OBJECT (fake_list_box_widget),
+                      "draw",
+                      G_CALLBACK (fake_list_box_draw),
+                      fake_list_box);
+
+    g_signal_connect (G_OBJECT (fake_list_box_widget),
+                      "button-release-event",
+                      G_CALLBACK (fake_list_box_button_release),
+                      NULL);
+
+    return fake_list_box_widget;
 }

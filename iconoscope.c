@@ -58,6 +58,7 @@ struct app_t {
     GTree *all_icon_names;
     GtkWidget *all_icon_names_widget;
     const char *all_icon_names_first;
+    struct fake_list_box_t fake_list_box;
 
     // Linked list head for all themes
     struct icon_theme_t *themes;
@@ -1159,7 +1160,12 @@ int main(int argc, char *argv[])
     gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(app.icon_view_widget), TRUE, TRUE);
 
     BEGIN_WALL_CLOCK;
+#if 0
     app.all_icon_names_widget = all_icon_names_list_new (NULL, &app.all_icon_names_first);
+#else
+    app.all_icon_names_widget = fake_list_box_init (&app.fake_list_box, app.all_icon_names);
+    app.all_icon_names_first = app.fake_list_box.rows[0];
+#endif
     PROBE_WALL_CLOCK("All theme widget creation");
     g_object_ref_sink (app.all_icon_names_widget);
 
