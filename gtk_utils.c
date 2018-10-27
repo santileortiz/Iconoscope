@@ -350,7 +350,6 @@ struct fake_list_box_t {
     int i;
 };
 
-
 gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     BEGIN_WALL_CLOCK;
@@ -388,6 +387,7 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
         width = MAX(width, extents.width + 2*margin_h);
         y += font_extents.ascent + font_extents.descent + 2*margin_v;
     }
+    y -= font_extents.ascent + margin_v;
 
     fake_list_box->row_height = font_extents.ascent + font_extents.descent + 2*margin_v;
 
@@ -413,15 +413,37 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
     return TRUE;
 }
 
+void fake_list_box_change_selected (struct fake_list_box_t *fake_list_box, int idx)
+{
+    fake_list_box->selected_row_idx = idx;
+    fake_list_box->row_selected_cb (fake_list_box, fake_list_box->selected_row_idx);
+}
+
 gboolean fake_list_box_button_release (GtkWidget *widget, GdkEvent *event, gpointer data)
 {
     GdkEventButton *e = (GdkEventButton*)event;
     struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
-    fake_list_box->selected_row_idx = (int) (e->y/fake_list_box->row_height);
-
-    fake_list_box->row_selected_cb (fake_list_box, fake_list_box->selected_row_idx);
-
+    int idx = (int) (e->y/fake_list_box->row_height);
     gtk_widget_grab_focus (widget);
+
+    fake_list_box_change_selected (fake_list_box, idx);
+    gtk_widget_queue_draw (widget);
+
+    return TRUE;
+}
+
+gboolean fake_list_box_key_press (GtkWidget *widget, GdkEventKey *e, gpointer data)
+{
+    struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
+    int idx;
+    if (e->keyval == GDK_KEY_Up || e->keyval == GDK_KEY_KP_Up) {
+        idx = MAX(0, fake_list_box->selected_row_idx-1);
+
+    } else if (e->keyval == GDK_KEY_Down || e->keyval == GDK_KEY_KP_Down) {
+        idx = MIN(fake_list_box->num_rows-1, fake_list_box->selected_row_idx+1);
+    }
+
+    fake_list_box_change_selected (fake_list_box, idx);
     gtk_widget_queue_draw (widget);
     return TRUE;
 }
@@ -459,6 +481,7 @@ GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* row
     // GDK_BUTTON_PRESS_MASK is required too.
     gtk_widget_add_events (fake_list_box_widget,
                            GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK |
+                           GDK_KEY_PRESS_MASK |
                            GDK_FOCUS_CHANGE_MASK );
 
     g_signal_connect (G_OBJECT (fake_list_box_widget),
@@ -469,6 +492,11 @@ GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* row
     g_signal_connect (G_OBJECT (fake_list_box_widget),
                       "button-release-event",
                       G_CALLBACK (fake_list_box_button_release),
+                      fake_list_box);
+
+    g_signal_connect (G_OBJECT (fake_list_box_widget),
+                      "key-press-event",
+                      G_CALLBACK (fake_list_box_key_press),
                       fake_list_box);
 
     gtk_widget_set_can_focus (fake_list_box_widget, TRUE);
