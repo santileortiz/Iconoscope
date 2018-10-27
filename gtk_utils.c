@@ -360,6 +360,8 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
     dvec4 text_color = RGB_255(66,66,66);
     dvec4 active_color = RGB_255(62,161,239);
     dvec4 active_text_color = RGB_255(255,255,255);
+    dvec4 unfocused_color = RGB_255(204,204,204);
+    dvec4 unfocused_text_color = RGB_255(51,51,51);
 
     struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
 
@@ -391,16 +393,20 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
 
     gtk_widget_set_size_request (widget, width, y);
 
+    gboolean has_focus = gtk_widget_has_focus (widget);
+    dvec4 selected_bg = has_focus ? active_color : unfocused_color;
+    dvec4 selected_color = has_focus ? active_text_color : unfocused_text_color;
+
     cairo_rectangle (cr,
                      0, fake_list_box->selected_row_idx*fake_list_box->row_height,
                      width, fake_list_box->row_height);
-    cairo_set_source_rgb (cr, ARGS_RGB(active_color));
+    cairo_set_source_rgb (cr, ARGS_RGB(selected_bg));
     cairo_fill (cr);
 
     cairo_move_to (cr, margin_h,
                    fake_list_box->selected_row_idx*(font_extents.ascent + font_extents.descent + 2*margin_v) +
                    font_extents.ascent + margin_v);
-    cairo_set_source_rgb (cr, ARGS_RGB(active_text_color));
+    cairo_set_source_rgb (cr, ARGS_RGB(selected_color));
     cairo_show_text (cr, fake_list_box->rows[fake_list_box->selected_row_idx]);
 
     PROBE_WALL_CLOCK("All names render time");
@@ -415,6 +421,13 @@ gboolean fake_list_box_button_release (GtkWidget *widget, GdkEvent *event, gpoin
 
     fake_list_box->row_selected_cb (fake_list_box, fake_list_box->selected_row_idx);
 
+    gtk_widget_grab_focus (widget);
+    gtk_widget_queue_draw (widget);
+    return TRUE;
+}
+
+gboolean fake_list_box_unfocus (GtkWidget *widget, GdkEvent *event, gpointer data)
+{
     gtk_widget_queue_draw (widget);
     return TRUE;
 }
@@ -444,7 +457,9 @@ GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* row
 
     // For some reason just adding GDK_BUTTON_RELEASE_MASK does not work...
     // GDK_BUTTON_PRESS_MASK is required too.
-    gtk_widget_add_events (fake_list_box_widget, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+    gtk_widget_add_events (fake_list_box_widget,
+                           GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK |
+                           GDK_FOCUS_CHANGE_MASK );
 
     g_signal_connect (G_OBJECT (fake_list_box_widget),
                       "draw",
@@ -454,6 +469,12 @@ GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* row
     g_signal_connect (G_OBJECT (fake_list_box_widget),
                       "button-release-event",
                       G_CALLBACK (fake_list_box_button_release),
+                      fake_list_box);
+
+    gtk_widget_set_can_focus (fake_list_box_widget, TRUE);
+    g_signal_connect (G_OBJECT (fake_list_box_widget),
+                      "focus-out-event",
+                      G_CALLBACK (fake_list_box_unfocus),
                       fake_list_box);
 
     return fake_list_box_widget;
