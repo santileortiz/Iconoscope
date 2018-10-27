@@ -330,15 +330,26 @@ void combo_box_text_append_text_with_id (GtkComboBoxText *combobox, const gchar 
     gtk_combo_box_text_append (combobox, text, text);
 }
 
+struct fake_list_box_t;
+
+#define FAKE_LIST_BOX_ROW_SELECTED_CB(name) void name(struct fake_list_box_t *fake_list_box, int idx)
+typedef FAKE_LIST_BOX_ROW_SELECTED_CB(fake_list_box_row_selected_cb_t);
+
 struct fake_list_box_t {
     mem_pool_t pool;
     int num_rows;
     char **rows;
 
+    int selected_row_idx;
+    double row_height;
+
+    fake_list_box_row_selected_cb_t *row_selected_cb;
+
     // Bleh I can't be bothered to create a proper closure for the
     // all_theme_list_build() callback.
     int i;
 };
+
 
 gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
@@ -347,6 +358,8 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
     double margin_h = 6;
     double margin_v = 3;
     dvec4 text_color = RGB_255(66,66,66);
+    dvec4 active_color = RGB_255(62,161,239);
+    dvec4 active_text_color = RGB_255(255,255,255);
 
     struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
 
@@ -374,16 +387,35 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
         y += font_extents.ascent + font_extents.descent + 2*margin_v;
     }
 
+    fake_list_box->row_height = font_extents.ascent + font_extents.descent + 2*margin_v;
+
     gtk_widget_set_size_request (widget, width, y);
+
+    cairo_rectangle (cr,
+                     0, fake_list_box->selected_row_idx*fake_list_box->row_height,
+                     width, fake_list_box->row_height);
+    cairo_set_source_rgb (cr, ARGS_RGB(active_color));
+    cairo_fill (cr);
+
+    cairo_move_to (cr, margin_h,
+                   fake_list_box->selected_row_idx*(font_extents.ascent + font_extents.descent + 2*margin_v) +
+                   font_extents.ascent + margin_v);
+    cairo_set_source_rgb (cr, ARGS_RGB(active_text_color));
+    cairo_show_text (cr, fake_list_box->rows[fake_list_box->selected_row_idx]);
 
     PROBE_WALL_CLOCK("All names render time");
     return TRUE;
 }
 
-gboolean fake_list_box_button_release (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+gboolean fake_list_box_button_release (GtkWidget *widget, GdkEvent *event, gpointer data)
 {
     GdkEventButton *e = (GdkEventButton*)event;
-    printf ("x: %f, y: %f\n", e->x, e->y);
+    struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
+    fake_list_box->selected_row_idx = (int) (e->y/fake_list_box->row_height);
+
+    fake_list_box->row_selected_cb (fake_list_box, fake_list_box->selected_row_idx);
+
+    gtk_widget_queue_draw (widget);
     return TRUE;
 }
 
@@ -395,7 +427,8 @@ gboolean fake_list_box_row_build (gpointer key, gpointer value, gpointer data)
     return FALSE;
 }
 
-GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* rows)
+GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* rows,
+                               fake_list_box_row_selected_cb_t *row_selected_cb)
 {
     GtkWidget *fake_list_box_widget = gtk_drawing_area_new ();
     gtk_widget_set_vexpand (fake_list_box_widget, TRUE);
@@ -404,6 +437,7 @@ GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* row
     fake_list_box->num_rows = g_tree_nnodes(rows);
     fake_list_box->rows =
         mem_pool_push_size (&fake_list_box->pool, fake_list_box->num_rows*sizeof(fake_list_box->rows));
+    fake_list_box->row_selected_cb = row_selected_cb;
 
     fake_list_box->i = 0;
     g_tree_foreach (rows, fake_list_box_row_build, fake_list_box);
@@ -420,7 +454,7 @@ GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* row
     g_signal_connect (G_OBJECT (fake_list_box_widget),
                       "button-release-event",
                       G_CALLBACK (fake_list_box_button_release),
-                      NULL);
+                      fake_list_box);
 
     return fake_list_box_widget;
 }

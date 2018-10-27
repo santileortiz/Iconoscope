@@ -914,6 +914,22 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     app_set_icon_view (&app, icon_name);
 }
 
+FAKE_LIST_BOX_ROW_SELECTED_CB (on_all_theme_row_selected)
+{
+    const char *icon_name = fake_list_box->rows[idx];
+
+    if (app.all_theme_selected) {
+        struct icon_theme_t *theme;
+        for (theme = app.themes; theme; theme = theme->next) {
+            if (g_hash_table_contains (theme->icon_names, icon_name)) break;
+        }
+        assert (theme != NULL);
+        app.selected_theme = theme;
+    }
+
+    app_set_icon_view (&app, icon_name);
+}
+
 gboolean on_key_press (GtkWidget *widget, GdkEventKey *event, gpointer data) {
     if (event->keyval == GDK_KEY_Escape){
         gtk_entry_set_text (GTK_ENTRY(app.search_entry), "");
@@ -1163,7 +1179,9 @@ int main(int argc, char *argv[])
 #if 0
     app.all_icon_names_widget = all_icon_names_list_new (NULL, &app.all_icon_names_first);
 #else
-    app.all_icon_names_widget = fake_list_box_init (&app.fake_list_box, app.all_icon_names);
+    app.all_icon_names_widget = fake_list_box_init (&app.fake_list_box,
+                                                    app.all_icon_names,
+                                                    on_all_theme_row_selected);
     app.all_icon_names_first = app.fake_list_box.rows[0];
 #endif
     PROBE_WALL_CLOCK("All theme widget creation");
