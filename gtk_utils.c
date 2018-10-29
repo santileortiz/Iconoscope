@@ -343,6 +343,8 @@ struct fake_list_box_t {
     int selected_row_idx;
     double row_height;
 
+    GtkWidget *widget;
+
     fake_list_box_row_selected_cb_t *row_selected_cb;
 
     // Bleh I can't be bothered to create a proper closure for the
@@ -404,7 +406,7 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
     cairo_fill (cr);
 
     cairo_move_to (cr, margin_h,
-                   fake_list_box->selected_row_idx*(font_extents.ascent + font_extents.descent + 2*margin_v) +
+                   fake_list_box->selected_row_idx*fake_list_box->row_height +
                    font_extents.ascent + margin_v);
     cairo_set_source_rgb (cr, ARGS_RGB(selected_color));
     cairo_show_text (cr, fake_list_box->rows[fake_list_box->selected_row_idx]);
@@ -416,6 +418,15 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
 void fake_list_box_change_selected (struct fake_list_box_t *fake_list_box, int idx)
 {
     fake_list_box->selected_row_idx = idx;
+
+    GtkWidget *parent = gtk_widget_get_parent (fake_list_box->widget);
+    if (parent && GTK_IS_SCROLLABLE (parent)) {
+        GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment (GTK_SCROLLABLE (parent));
+
+        double y = fake_list_box->selected_row_idx*fake_list_box->row_height;
+        gtk_adjustment_clamp_page (adjustment, y, y + fake_list_box->row_height);
+    }
+
     fake_list_box->row_selected_cb (fake_list_box, fake_list_box->selected_row_idx);
 }
 
@@ -465,9 +476,9 @@ gboolean fake_list_box_row_build (gpointer key, gpointer value, gpointer data)
 GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* rows,
                                fake_list_box_row_selected_cb_t *row_selected_cb)
 {
-    GtkWidget *fake_list_box_widget = gtk_drawing_area_new ();
-    gtk_widget_set_vexpand (fake_list_box_widget, TRUE);
-    gtk_widget_set_hexpand (fake_list_box_widget, TRUE);
+    fake_list_box->widget = gtk_drawing_area_new ();
+    gtk_widget_set_vexpand (fake_list_box->widget, TRUE);
+    gtk_widget_set_hexpand (fake_list_box->widget, TRUE);
 
     fake_list_box->num_rows = g_tree_nnodes(rows);
     fake_list_box->rows =
@@ -479,31 +490,31 @@ GtkWidget* fake_list_box_init (struct fake_list_box_t *fake_list_box, GTree* row
 
     // For some reason just adding GDK_BUTTON_RELEASE_MASK does not work...
     // GDK_BUTTON_PRESS_MASK is required too.
-    gtk_widget_add_events (fake_list_box_widget,
+    gtk_widget_add_events (fake_list_box->widget,
                            GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK |
                            GDK_KEY_PRESS_MASK |
                            GDK_FOCUS_CHANGE_MASK );
 
-    g_signal_connect (G_OBJECT (fake_list_box_widget),
+    g_signal_connect (G_OBJECT (fake_list_box->widget),
                       "draw",
                       G_CALLBACK (fake_list_box_draw),
                       fake_list_box);
 
-    g_signal_connect (G_OBJECT (fake_list_box_widget),
+    g_signal_connect (G_OBJECT (fake_list_box->widget),
                       "button-release-event",
                       G_CALLBACK (fake_list_box_button_release),
                       fake_list_box);
 
-    g_signal_connect (G_OBJECT (fake_list_box_widget),
+    g_signal_connect (G_OBJECT (fake_list_box->widget),
                       "key-press-event",
                       G_CALLBACK (fake_list_box_key_press),
                       fake_list_box);
 
-    gtk_widget_set_can_focus (fake_list_box_widget, TRUE);
-    g_signal_connect (G_OBJECT (fake_list_box_widget),
+    gtk_widget_set_can_focus (fake_list_box->widget, TRUE);
+    g_signal_connect (G_OBJECT (fake_list_box->widget),
                       "focus-out-event",
                       G_CALLBACK (fake_list_box_unfocus),
                       fake_list_box);
 
-    return fake_list_box_widget;
+    return fake_list_box->widget;
 }
