@@ -136,18 +136,13 @@ GtkWidget* wrap_gtk_widget (GtkWidget *widget)
 
 void replace_wrapped_widget (GtkWidget **original, GtkWidget *new_widget)
 {
-    BEGIN_WALL_CLOCK;
     GtkWidget *parent = gtk_widget_get_parent (*original);
     gtk_container_remove (GTK_CONTAINER(parent), *original);
-    PROBE_WALL_CLOCK("    Remove");
 
     *original = new_widget;
     gtk_container_add (GTK_CONTAINER(parent), new_widget);
-    PROBE_WALL_CLOCK("    Add");
 
     gtk_widget_show_all (new_widget);
-    PROBE_WALL_CLOCK("    Show");
-    printf ("\n");
 }
 
 // An issue with the wrapped widget idiom is that if a widget triggers a replace
@@ -403,7 +398,6 @@ gboolean fake_list_box_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
     cairo_set_source_rgb (cr, ARGS_RGB(selected_color));
     cairo_show_text (cr, fake_list_box->rows[fake_list_box->selected_row_idx]);
 
-    PROBE_WALL_CLOCK("All names render time");
     return TRUE;
 }
 

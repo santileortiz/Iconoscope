@@ -1166,17 +1166,11 @@ int main(int argc, char *argv[])
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
     gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(app.icon_view_widget), TRUE, TRUE);
 
-    BEGIN_WALL_CLOCK;
-#if 0
-    app.all_icon_names_widget = all_icon_names_list_new (NULL, &app.all_icon_names_first);
-#else
     app.all_icon_names_widget = fake_list_box_init (&app.fake_list_box,
                                                     app.all_icon_names,
                                                     on_all_theme_row_selected);
     app.all_icon_names_first = app.fake_list_box.rows[0];
-#endif
     g_object_ref_sink (app.all_icon_names_widget);
-    PROBE_WALL_CLOCK("All theme widget creation");
 
     app_set_selected_theme (&app, "Hicolor", NULL);
 
