@@ -168,12 +168,6 @@ void replace_wrapped_widget (GtkWidget **original, GtkWidget *new_widget)
 // splits widget replacement so that widget destruction is triggered, and then
 // in the handler for the destroy signal, we actually replace the widget. Not
 // nice, but seems to solve the issue.
-struct replace_wrapped_widget_closure_t {
-    GtkWidget **original;
-    GtkWidget *parent;
-    GtkWidget *new_widget;
-};
-
 gboolean idle_widget_destroy (gpointer user_data)
 {
     gtk_widget_destroy ((GtkWidget *) user_data);
@@ -182,21 +176,19 @@ gboolean idle_widget_destroy (gpointer user_data)
 
 void replace_wrapped_widget_defered_cb (GtkWidget *object, gpointer user_data)
 {
-    struct replace_wrapped_widget_closure_t *clsr = (struct replace_wrapped_widget_closure_t *) user_data;
-    *clsr->original = clsr->new_widget;
-    gtk_container_add (GTK_CONTAINER(clsr->parent), clsr->new_widget);
-    gtk_widget_show_all (clsr->new_widget);
-    free (clsr);
+    // We do this here so we never add the old and new widgets to the wrapper
+    // and end up increasing the allocation size and glitching/
+    gtk_widget_show_all ((GtkWidget *) user_data);
 }
 
 void replace_wrapped_widget_defered (GtkWidget **original, GtkWidget *new_widget)
 {
-    struct replace_wrapped_widget_closure_t *clsr = malloc (sizeof (struct replace_wrapped_widget_closure_t));
-    clsr->original = original;
-    clsr->parent = gtk_widget_get_parent (*original);
-    clsr->new_widget = new_widget;
-    g_signal_connect (G_OBJECT(*original), "destroy", G_CALLBACK (replace_wrapped_widget_defered_cb), clsr);
+    GtkWidget *parent = gtk_widget_get_parent (*original);
+    gtk_container_add (GTK_CONTAINER(parent), new_widget);
+
+    g_signal_connect (G_OBJECT(*original), "destroy", G_CALLBACK (replace_wrapped_widget_defered_cb), new_widget);
     g_idle_add (idle_widget_destroy, *original);
+    *original = new_widget;
 }
 
 // Convenience wrapper for setting properties in objects when they don't have
@@ -439,14 +431,13 @@ gboolean fake_list_box_button_release (GtkWidget *widget, GdkEvent *event, gpoin
 
     fake_list_box_change_selected (fake_list_box, idx);
     gtk_widget_queue_draw (widget);
-
     return TRUE;
 }
 
 gboolean fake_list_box_key_press (GtkWidget *widget, GdkEventKey *e, gpointer data)
 {
     struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
-    int idx;
+    int idx = -1;
     if (e->keyval == GDK_KEY_Up || e->keyval == GDK_KEY_KP_Up) {
         idx = MAX(0, fake_list_box->selected_row_idx-1);
 
@@ -454,9 +445,13 @@ gboolean fake_list_box_key_press (GtkWidget *widget, GdkEventKey *e, gpointer da
         idx = MIN(fake_list_box->num_rows-1, fake_list_box->selected_row_idx+1);
     }
 
-    fake_list_box_change_selected (fake_list_box, idx);
-    gtk_widget_queue_draw (widget);
-    return TRUE;
+    if (idx != -1) {
+        fake_list_box_change_selected (fake_list_box, idx);
+        gtk_widget_queue_draw (widget);
+        return TRUE;
+    } else {
+        return FALSE;
+    }
 }
 
 gboolean fake_list_box_unfocus (GtkWidget *widget, GdkEvent *event, gpointer data)
