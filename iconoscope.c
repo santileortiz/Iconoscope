@@ -902,15 +902,6 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
     const char *icon_name = gtk_label_get_text (GTK_LABEL(row_label));
 
-    if (app.all_theme_selected) {
-        struct icon_theme_t *theme;
-        for (theme = app.themes; theme; theme = theme->next) {
-            if (g_hash_table_contains (theme->icon_names, icon_name)) break;
-        }
-        assert (theme != NULL);
-        app.selected_theme = theme;
-    }
-
     app_set_icon_view (&app, icon_name);
 }
 
@@ -1184,8 +1175,8 @@ int main(int argc, char *argv[])
                                                     on_all_theme_row_selected);
     app.all_icon_names_first = app.fake_list_box.rows[0];
 #endif
-    PROBE_WALL_CLOCK("All theme widget creation");
     g_object_ref_sink (app.all_icon_names_widget);
+    PROBE_WALL_CLOCK("All theme widget creation");
 
     app_set_selected_theme (&app, "Hicolor", NULL);
 
