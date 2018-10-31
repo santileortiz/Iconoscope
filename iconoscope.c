@@ -907,7 +907,7 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
 
 FAKE_LIST_BOX_ROW_SELECTED_CB (on_all_theme_row_selected)
 {
-    const char *icon_name = fake_list_box->rows[idx];
+    const char *icon_name = fake_list_box->rows[idx].data;
 
     if (app.all_theme_selected) {
         struct icon_theme_t *theme;
@@ -1122,6 +1122,14 @@ gboolean delete_callback (GtkWidget *widget, GdkEvent *event, gpointer user_data
     return FALSE;
 }
 
+gboolean all_theme_row_build (gpointer key, gpointer value, gpointer data)
+{
+    struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
+    struct fake_list_box_row_t *row = fake_list_box_row_new (fake_list_box);
+    row->data = key;
+    return FALSE;
+}
+
 int main(int argc, char *argv[])
 {
     GtkWidget *window;
@@ -1167,9 +1175,11 @@ int main(int argc, char *argv[])
     gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(app.icon_view_widget), TRUE, TRUE);
 
     app.all_icon_names_widget = fake_list_box_init (&app.fake_list_box,
-                                                    app.all_icon_names,
                                                     on_all_theme_row_selected);
-    app.all_icon_names_first = app.fake_list_box.rows[0];
+    fake_list_box_rows_start (&app.fake_list_box, g_tree_nnodes(app.all_icon_names));
+    g_tree_foreach (app.all_icon_names, all_theme_row_build, &app.fake_list_box);
+
+    app.all_icon_names_first = app.fake_list_box.rows[0].data;
     g_object_ref_sink (app.all_icon_names_widget);
 
 
