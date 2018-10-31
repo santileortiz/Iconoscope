@@ -364,7 +364,7 @@ GtkWidget* draw_icon_view (struct icon_view_t *icon_view)
                      wrap_gtk_widget(icon_view->image_data_dpy),
                      0, 1, 1, 1);
 
-    return fake_paned (GTK_ORIENTATION_VERTICAL,
-                       wrap_gtk_widget(icon_view->icon_dpy),
-                       data_pane);
+    return fk_paned (GTK_ORIENTATION_VERTICAL,
+                     wrap_gtk_widget(icon_view->icon_dpy),
+                     data_pane);
 }

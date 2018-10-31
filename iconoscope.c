@@ -5,6 +5,8 @@
 #include "common.h"
 #include "slo_timers.h"
 #include "gtk_utils.c"
+#include "fk_paned.c"
+#include "fk_list_box.c"
 
 struct app_t app;
 void app_set_selected_theme (struct app_t *app, const char *theme_name, const char *selected_icon);
@@ -58,7 +60,7 @@ struct app_t {
     GTree *all_icon_names;
     GtkWidget *all_icon_names_widget;
     const char *all_icon_names_first;
-    struct fake_list_box_t fake_list_box;
+    struct fk_list_box_t fk_list_box;
 
     // Linked list head for all themes
     struct icon_theme_t *themes;
@@ -905,9 +907,9 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
     app_set_icon_view (&app, icon_name);
 }
 
-FAKE_LIST_BOX_ROW_SELECTED_CB (on_all_theme_row_selected)
+FK_LIST_BOX_ROW_SELECTED_CB (on_all_theme_row_selected)
 {
-    const char *icon_name = fake_list_box->visible_rows[idx]->data;
+    const char *icon_name = fk_list_box->visible_rows[idx]->data;
 
     if (app.all_theme_selected) {
         struct icon_theme_t *theme;
@@ -1111,11 +1113,11 @@ void on_search_changed (GtkEditable *search_entry, gpointer user_data)
 {
     if (app.all_theme_selected) {
         const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(search_entry));
-        for (int i=0; i<app.fake_list_box.num_rows; i++) {
-            const char *icon_name = app.fake_list_box.rows[i].data;
-            app.fake_list_box.rows[i].hidden = (strstr (icon_name, search_str) == NULL);
+        for (int i=0; i<app.fk_list_box.num_rows; i++) {
+            const char *icon_name = app.fk_list_box.rows[i].data;
+            app.fk_list_box.rows[i].hidden = (strstr (icon_name, search_str) == NULL);
         }
-        fake_list_box_refresh_hidden (&app.fake_list_box);
+        fk_list_box_refresh_hidden (&app.fk_list_box);
 
     } else {
         gtk_list_box_invalidate_filter (GTK_LIST_BOX(app.icon_list));
@@ -1130,8 +1132,8 @@ gboolean delete_callback (GtkWidget *widget, GdkEvent *event, gpointer user_data
 
 gboolean all_theme_row_build (gpointer key, gpointer value, gpointer data)
 {
-    struct fake_list_box_t *fake_list_box = (struct fake_list_box_t *)data;
-    struct fake_list_box_row_t *row = fake_list_box_row_new (fake_list_box);
+    struct fk_list_box_t *fk_list_box = (struct fk_list_box_t *)data;
+    struct fk_list_box_row_t *row = fk_list_box_row_new (fk_list_box);
     row->data = key;
     return FALSE;
 }
@@ -1180,14 +1182,13 @@ int main(int argc, char *argv[])
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
     gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(app.icon_view_widget), TRUE, TRUE);
 
-    app.all_icon_names_widget = fake_list_box_init (&app.fake_list_box,
-                                                    on_all_theme_row_selected);
-    fake_list_box_rows_start (&app.fake_list_box, g_tree_nnodes(app.all_icon_names));
-    g_tree_foreach (app.all_icon_names, all_theme_row_build, &app.fake_list_box);
+    app.all_icon_names_widget = fk_list_box_init (&app.fk_list_box,
+                                                  on_all_theme_row_selected);
+    fk_list_box_rows_start (&app.fk_list_box, g_tree_nnodes(app.all_icon_names));
+    g_tree_foreach (app.all_icon_names, all_theme_row_build, &app.fk_list_box);
 
-    app.all_icon_names_first = app.fake_list_box.rows[0].data;
+    app.all_icon_names_first = app.fk_list_box.rows[0].data;
     g_object_ref_sink (app.all_icon_names_widget);
-
 
     // Set the fake "All" theme as default.
     {
@@ -1217,6 +1218,9 @@ int main(int argc, char *argv[])
 
     gtk_main();
 
+    fk_list_box_destroy (&app.fk_list_box);
+
     app_destroy (&app);
+
     return 0;
 }
