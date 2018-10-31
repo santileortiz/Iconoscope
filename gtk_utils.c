@@ -331,8 +331,11 @@ struct fake_list_box_t {
     mem_pool_t pool;
     int num_rows;
     struct fake_list_box_row_t *rows;
+    int num_visible_rows;
+    struct fake_list_box_row_t **visible_rows;
 
     int selected_row_idx;
+    struct fake_list_box_row_t *selected_row;
     double row_height;
 
     GtkWidget *widget;
@@ -371,12 +374,12 @@ gboolean fake_list_box_draw_text_data (GtkWidget *widget, cairo_t *cr, gpointer 
     double width = 0;
     double y = font_extents.ascent + margin_v;
     int i;
-    for (i=0; i<fake_list_box->num_rows; i++) {
+    for (i=0; i<fake_list_box->num_visible_rows; i++) {
         cairo_move_to (cr, margin_h, y);
-        cairo_show_text (cr, fake_list_box->rows[i].data);
+        cairo_show_text (cr, fake_list_box->visible_rows[i]->data);
 
         cairo_text_extents_t extents;
-        cairo_text_extents (cr, fake_list_box->rows[i].data, &extents);
+        cairo_text_extents (cr, fake_list_box->visible_rows[i]->data, &extents);
         width = MAX(width, extents.width + 2*margin_h);
         y += font_extents.ascent + font_extents.descent + 2*margin_v;
     }
@@ -386,21 +389,29 @@ gboolean fake_list_box_draw_text_data (GtkWidget *widget, cairo_t *cr, gpointer 
 
     gtk_widget_set_size_request (widget, width, y);
 
-    gboolean has_focus = gtk_widget_has_focus (widget);
-    dvec4 selected_bg = has_focus ? active_color : unfocused_color;
-    dvec4 selected_color = has_focus ? active_text_color : unfocused_text_color;
+    if (!fake_list_box->selected_row->hidden) {
+        assert (fake_list_box->selected_row_idx != -1);
 
-    cairo_rectangle (cr,
-                     0, fake_list_box->selected_row_idx*fake_list_box->row_height,
-                     width, fake_list_box->row_height);
-    cairo_set_source_rgb (cr, ARGS_RGB(selected_bg));
-    cairo_fill (cr);
+        gboolean has_focus = gtk_widget_has_focus (widget);
+        dvec4 selected_bg = has_focus ? active_color : unfocused_color;
+        dvec4 selected_color = has_focus ? active_text_color : unfocused_text_color;
 
-    cairo_move_to (cr, margin_h,
-                   fake_list_box->selected_row_idx*fake_list_box->row_height +
-                   font_extents.ascent + margin_v);
-    cairo_set_source_rgb (cr, ARGS_RGB(selected_color));
-    cairo_show_text (cr, fake_list_box->rows[fake_list_box->selected_row_idx].data);
+        // The rectangle for the selected row must go all the way across the
+        // widget, INFINITY would be good width but Cairo doesn't draw this, so
+        // we just use a very big number.
+        double infinity_width = 1000000;
+        cairo_rectangle (cr,
+                         0, fake_list_box->selected_row_idx*fake_list_box->row_height,
+                         infinity_width, fake_list_box->row_height);
+        cairo_set_source_rgb (cr, ARGS_RGB(selected_bg));
+        cairo_fill (cr);
+
+        cairo_move_to (cr, margin_h,
+                       fake_list_box->selected_row_idx*fake_list_box->row_height +
+                       font_extents.ascent + margin_v);
+        cairo_set_source_rgb (cr, ARGS_RGB(selected_color));
+        cairo_show_text (cr, fake_list_box->visible_rows[fake_list_box->selected_row_idx]->data);
+    }
 
     return TRUE;
 }
@@ -409,8 +420,15 @@ void fake_list_box_rows_start (struct fake_list_box_t *fake_list_box, int num_ro
 {
     fake_list_box->row_cnt = 0;
     fake_list_box->num_rows = num_rows;
+    fake_list_box->num_visible_rows = num_rows;
     fake_list_box->rows =
-        mem_pool_push_size (&fake_list_box->pool, fake_list_box->num_rows*sizeof(*fake_list_box->rows));
+        mem_pool_push_size (&fake_list_box->pool,
+                            fake_list_box->num_rows*sizeof(struct fake_list_box_row_t));
+    fake_list_box->visible_rows =
+        mem_pool_push_size (&fake_list_box->pool,
+                            fake_list_box->num_rows*sizeof(struct fake_list_box_row_t*));
+    fake_list_box->selected_row_idx = 0;
+    fake_list_box->selected_row = &fake_list_box->rows[0];
 }
 
 struct fake_list_box_row_t* fake_list_box_row_new (struct fake_list_box_t *fake_list_box)
@@ -419,6 +437,7 @@ struct fake_list_box_row_t* fake_list_box_row_new (struct fake_list_box_t *fake_
     if (fake_list_box->row_cnt < fake_list_box->num_rows) {
         new_row = &fake_list_box->rows[fake_list_box->row_cnt];
         *new_row = ZERO_INIT (struct fake_list_box_row_t);
+        fake_list_box->visible_rows[fake_list_box->row_cnt] = new_row;
         fake_list_box->row_cnt++;
 
     } else {
@@ -428,9 +447,41 @@ struct fake_list_box_row_t* fake_list_box_row_new (struct fake_list_box_t *fake_
     return new_row;
 }
 
+void fake_list_box_refresh_hidden (struct fake_list_box_t *fake_list_box)
+{
+    int visible_cnt = 0;
+    for (int i=0; i<fake_list_box->num_rows; i++) {
+        if (!fake_list_box->rows[i].hidden) {
+            fake_list_box->visible_rows[visible_cnt] = &fake_list_box->rows[i];
+            visible_cnt++;
+        }
+    }
+    fake_list_box->num_visible_rows = visible_cnt;
+
+    if (!fake_list_box->selected_row->hidden &&
+        fake_list_box->selected_row != fake_list_box->visible_rows[fake_list_box->selected_row_idx]) {
+        // The selected row is visible and its index changed, compute the new one.
+        // TODO: We can speed this up with binary search of pointers, as rows
+        // have increasing addresses because they are in an array.
+        for (int i=0; i<fake_list_box->num_visible_rows; i++) {
+            if (fake_list_box->visible_rows[i] == fake_list_box->selected_row) {
+                fake_list_box->selected_row_idx = i;
+                break;
+            }
+        }
+    }
+
+    gtk_widget_queue_draw (fake_list_box->widget);
+}
+
+// NOTE: idx is the index of the selected row in the visible_rows array.
 void fake_list_box_change_selected (struct fake_list_box_t *fake_list_box, int idx)
 {
+    assert (idx >= 0);
+    assert (idx < fake_list_box->num_visible_rows);
+
     fake_list_box->selected_row_idx = idx;
+    fake_list_box->selected_row = fake_list_box->visible_rows[idx];
 
     GtkWidget *parent = gtk_widget_get_parent (fake_list_box->widget);
     if (parent && GTK_IS_SCROLLABLE (parent)) {
@@ -451,7 +502,9 @@ gboolean fake_list_box_button_release (GtkWidget *widget, GdkEvent *event, gpoin
     int idx = (int) (e->y/fake_list_box->row_height);
     gtk_widget_grab_focus (widget);
 
-    fake_list_box_change_selected (fake_list_box, idx);
+    if (idx < fake_list_box->num_visible_rows) {
+        fake_list_box_change_selected (fake_list_box, idx);
+    }
     return TRUE;
 }
 
@@ -463,7 +516,7 @@ gboolean fake_list_box_key_press (GtkWidget *widget, GdkEventKey *e, gpointer da
         idx = MAX(0, fake_list_box->selected_row_idx-1);
 
     } else if (e->keyval == GDK_KEY_Down || e->keyval == GDK_KEY_KP_Down) {
-        idx = MIN(fake_list_box->num_rows-1, fake_list_box->selected_row_idx+1);
+        idx = MIN(fake_list_box->num_visible_rows-1, fake_list_box->selected_row_idx+1);
     }
 
     if (idx != -1) {

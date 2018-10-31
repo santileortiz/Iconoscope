@@ -907,7 +907,7 @@ void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
 
 FAKE_LIST_BOX_ROW_SELECTED_CB (on_all_theme_row_selected)
 {
-    const char *icon_name = fake_list_box->rows[idx].data;
+    const char *icon_name = fake_list_box->visible_rows[idx]->data;
 
     if (app.all_theme_selected) {
         struct icon_theme_t *theme;
@@ -935,11 +935,7 @@ gboolean search_filter (GtkListBoxRow *row, gpointer user_data)
     GtkWidget *row_label = gtk_bin_get_child (GTK_BIN(row));
     const char * icon_name = gtk_label_get_text (GTK_LABEL(row_label));
 
-    if (strstr (icon_name, search_str) != NULL) {
-        return TRUE;
-    } else {
-        return FALSE;
-    }
+    return strstr (icon_name, search_str) != NULL ? TRUE : FALSE;
 }
 
 // The only way to iterate through a GTree is using a callback an
@@ -1113,7 +1109,17 @@ void app_set_selected_theme (struct app_t *app, const char *theme_name, const ch
 
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
 {
-    gtk_list_box_invalidate_filter (GTK_LIST_BOX(app.icon_list));
+    if (app.all_theme_selected) {
+        const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(search_entry));
+        for (int i=0; i<app.fake_list_box.num_rows; i++) {
+            const char *icon_name = app.fake_list_box.rows[i].data;
+            app.fake_list_box.rows[i].hidden = (strstr (icon_name, search_str) == NULL);
+        }
+        fake_list_box_refresh_hidden (&app.fake_list_box);
+
+    } else {
+        gtk_list_box_invalidate_filter (GTK_LIST_BOX(app.icon_list));
+    }
 }
 
 gboolean delete_callback (GtkWidget *widget, GdkEvent *event, gpointer user_data)
