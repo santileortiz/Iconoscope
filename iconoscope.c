@@ -1172,7 +1172,28 @@ int main(int argc, char *argv[])
     app.all_icon_names_first = app.fake_list_box.rows[0];
     g_object_ref_sink (app.all_icon_names_widget);
 
-    app_set_selected_theme (&app, "Hicolor", NULL);
+
+    // Set the fake "All" theme as default.
+    {
+        const char *icon_name = NULL;
+        const char* theme_name = NULL;
+        app.all_theme_selected = true;
+
+        replace_wrapped_widget (&app.icon_list, app.all_icon_names_widget);
+
+        struct icon_theme_t *theme;
+        for (theme = app.themes; theme; theme = theme->next) {
+            if (g_hash_table_contains (theme->icon_names, app.all_icon_names_first)) break;
+        }
+        icon_name = app.all_icon_names_first;
+        assert (theme != NULL);
+        theme_name = theme->name;
+
+        GtkWidget *new_theme_selector = theme_selector_new ("All");
+        replace_wrapped_widget_defered (&app.theme_selector, new_theme_selector);
+
+        app_set_selected_theme (&app, theme_name, icon_name);
+    }
 
     gtk_container_add(GTK_CONTAINER(window), paned);
 
