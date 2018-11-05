@@ -66,8 +66,6 @@ def call_user_function(name, dry_run=False):
 def check_completions ():
     comp_path = pathlib.Path('/usr/share/bash-completion/completions/pymk.py')
     if not comp_path.exists():
-        print ('Tab completions not installed:')
-        print ('Use "sudo ./pymk.py --install_completions" to install them\n')
         return False
     else:
         return True
@@ -96,15 +94,18 @@ def handle_tab_complete ():
 
     # Check that the tab completion script is installed
     if not check_completions ():
+        if get_cli_option('--install_completions'):
+            print ('Installing tab completions...')
+            ex ("cp mkpy/pymk.py /usr/share/bash-completion/completions/")
+            exit ()
+        else:
+            print ('Tab completions not installed:')
+            print ('Use "sudo ./pymk.py --install_completions" to install them\n')
         return
 
     # Add the builtin tab completions the user wants
     if len(builtin_completions) > 0:
         [get_cli_option (c) for c in builtin_completions]
-
-    if get_cli_option('--install_completions'):
-        ex ("cp mkpy/pymk.py /usr/share/bash-completion/completions/")
-        exit ()
 
     data_str = get_cli_option('--get_completions', unique_option=True, has_argument=True)
     if data_str != None:
@@ -246,7 +247,12 @@ def ex (cmd, no_stdout=False, ret_stdout=False, echo=True):
         redirect = open(os.devnull, 'wb') if no_stdout else None
         return subprocess.call(resolved_cmd, shell=True, stdout=redirect)
     else:
-        return subprocess.check_output(resolved_cmd, shell=True, stderr=open(os.devnull, 'wb')).decode().strip ()
+        result = ""
+        try:
+            result = subprocess.check_output(resolved_cmd, shell=True, stderr=open(os.devnull, 'wb')).decode().strip ()
+        except subprocess.CalledProcessError as e:
+            pass
+        return result
 
 def info (s):
     # The following code can be used to se available colors
