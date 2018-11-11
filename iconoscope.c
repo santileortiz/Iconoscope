@@ -43,10 +43,15 @@ struct icon_theme_t {
     struct icon_theme_t *next;
 };
 
+enum theme_type_t {
+    THEME_TYPE_NORMAL,
+    THEME_TYPE_ALL
+};
+
 struct app_t {
     // App state
     struct icon_theme_t *selected_theme;
-    bool all_theme_selected;
+    enum theme_type_t selected_theme_type;
     char *selected_icon;
     dvec4 bg_color;
 
@@ -911,7 +916,7 @@ FK_LIST_BOX_ROW_SELECTED_CB (on_all_theme_row_selected)
 {
     const char *icon_name = fk_list_box->visible_rows[idx]->data;
 
-    if (app.all_theme_selected) {
+    if (app.selected_theme_type == THEME_TYPE_ALL) {
         struct icon_theme_t *theme;
         for (theme = app.themes; theme; theme = theme->next) {
             if (g_hash_table_contains (theme->icon_names, icon_name)) break;
@@ -1066,7 +1071,7 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
     const char *icon_name = NULL;
     const char* theme_name = gtk_combo_box_get_active_id (themes_combobox);
     if (strcmp (theme_name, "All") == 0) {
-        app.all_theme_selected = true;
+        app.selected_theme_type = THEME_TYPE_ALL;
 
         replace_wrapped_widget (&app.icon_list, app.all_icon_names_widget);
 
@@ -1079,7 +1084,7 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
         theme_name = theme->name;
 
     } else {
-        app.all_theme_selected = false;
+        app.selected_theme_type = THEME_TYPE_NORMAL;
     }
 
     app_set_selected_theme (&app, theme_name, icon_name);
@@ -1097,7 +1102,7 @@ void app_set_selected_theme (struct app_t *app, const char *theme_name, const ch
     app->selected_theme = curr_theme;
 
     const char *choosen_icon = selected_icon;
-    if (!app->all_theme_selected) {
+    if (app->selected_theme_type == THEME_TYPE_NORMAL) {
         GtkWidget *new_icon_list = icon_list_new (theme_name, selected_icon, &choosen_icon);
         replace_wrapped_widget (&app->icon_list, new_icon_list);
 
@@ -1111,7 +1116,7 @@ void app_set_selected_theme (struct app_t *app, const char *theme_name, const ch
 
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
 {
-    if (app.all_theme_selected) {
+    if (app.selected_theme_type == THEME_TYPE_ALL) {
         const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(search_entry));
         for (int i=0; i<app.fk_list_box.num_rows; i++) {
             const char *icon_name = app.fk_list_box.rows[i].data;
@@ -1194,7 +1199,7 @@ int main(int argc, char *argv[])
     {
         const char *icon_name = NULL;
         const char* theme_name = NULL;
-        app.all_theme_selected = true;
+        app.selected_theme_type = THEME_TYPE_ALL;
 
         replace_wrapped_widget (&app.icon_list, app.all_icon_names_widget);
 
