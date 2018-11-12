@@ -45,7 +45,8 @@ struct icon_theme_t {
 
 enum theme_type_t {
     THEME_TYPE_NORMAL,
-    THEME_TYPE_ALL
+    THEME_TYPE_ALL,
+    THEME_TYPE_FOLDER
 };
 
 struct app_t {
@@ -54,20 +55,26 @@ struct app_t {
     enum theme_type_t selected_theme_type;
     char *selected_icon;
     dvec4 bg_color;
+    GtkWidget *window;
 
     GtkWidget *icon_list;
     GtkWidget *search_entry;
     GtkWidget *icon_view_widget;
     GtkWidget *theme_selector;
 
-    // Special (fake) "All" theme
+    // State if selected theme is THEME_TYPE_ALL
     mem_pool_t all_icon_names_pool;
     GTree *all_icon_names;
     GtkWidget *all_icon_names_widget;
     const char *all_icon_names_first;
-    struct fk_list_box_t fk_list_box;
+    struct fk_list_box_t all_theme_fk_list_box;
 
-    // Linked list head for all themes
+    // State if selected theme is THEME_TYPE_FOLDER
+    mem_pool_t folder_theme_pool;
+    char *folder_theme_dir;
+    struct fk_list_box_t folder_theme_fk_list_box;
+
+    // Linked list head for THEME_TYPE_NORMAL themes
     struct icon_theme_t *themes;
 
     // Icon view for the selected icon
@@ -1058,10 +1065,19 @@ GtkWidget *theme_selector_new (const char *theme_name)
     GtkWidget *themes_combobox;
     GtkWidget *theme_selector = labeled_combobox_new ("Theme:", &themes_combobox);
     combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(themes_combobox), "All");
+    if (app.selected_theme_type == THEME_TYPE_FOLDER) {
+        theme_name = "Folder…";
+        combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(themes_combobox), theme_name);
+    }
+
     for (struct icon_theme_t *curr_theme = app.themes; curr_theme; curr_theme = curr_theme->next) {
         combo_box_text_append_text_with_id (GTK_COMBO_BOX_TEXT(themes_combobox), curr_theme->name);
     }
-    gtk_combo_box_set_active_id (GTK_COMBO_BOX(themes_combobox), theme_name);
+
+    if (theme_name != NULL) {
+        gtk_combo_box_set_active_id (GTK_COMBO_BOX(themes_combobox), theme_name);
+    }
+
     g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_theme_changed), NULL);
     return theme_selector;
 }
@@ -1114,19 +1130,84 @@ void app_set_selected_theme (struct app_t *app, const char *theme_name, const ch
     app_set_icon_view (app, app->selected_icon);
 }
 
+FK_LIST_BOX_ROW_SELECTED_CB (on_folder_theme_row_selected)
+{
+    // TODO: Implement this!
+    //const char *icon_name = fk_list_box->visible_rows[idx]->data;
+
+    //if (app.selected_theme_type == THEME_TYPE_ALL) {
+    //    struct icon_theme_t *theme;
+    //    for (theme = app.themes; theme; theme = theme->next) {
+    //        if (g_hash_table_contains (theme->icon_names, icon_name)) break;
+    //    }
+    //    assert (theme != NULL);
+    //    app.selected_theme = theme;
+    //}
+
+    //app_set_icon_view (&app, icon_name);
+}
+
+
+void app_set_folder_theme (struct app_t *app, char *path)
+{
+    // Destroy all state for the old folder theme
+    fk_list_box_destroy (&app->folder_theme_fk_list_box);
+    mem_pool_destroy (&app->folder_theme_pool);
+
+    GtkWidget *folder_icon_names_widget = fk_list_box_init (&app->folder_theme_fk_list_box,
+                                                            on_folder_theme_row_selected);
+    //fk_list_box_rows_start (&app->folder_theme_fk_list_box, g_tree_nnodes(app->all_icon_names));
+
+    replace_wrapped_widget (&app->icon_list, folder_icon_names_widget);
+
+    GtkWidget *new_theme_selector = theme_selector_new (NULL);
+    replace_wrapped_widget_defered (&app->theme_selector, new_theme_selector);
+}
+
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
 {
-    if (app.selected_theme_type == THEME_TYPE_ALL) {
-        const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(search_entry));
-        for (int i=0; i<app.fk_list_box.num_rows; i++) {
-            const char *icon_name = app.fk_list_box.rows[i].data;
-            app.fk_list_box.rows[i].hidden = (strstr (icon_name, search_str) == NULL);
-        }
-        fk_list_box_refresh_hidden (&app.fk_list_box);
+    if (app.selected_theme_type == THEME_TYPE_NORMAL) {
+        gtk_list_box_invalidate_filter (GTK_LIST_BOX(app.icon_list));
 
     } else {
-        gtk_list_box_invalidate_filter (GTK_LIST_BOX(app.icon_list));
+        assert (app.selected_theme_type == THEME_TYPE_ALL || app.selected_theme_type == THEME_TYPE_FOLDER);
+
+        struct fk_list_box_t *fk_list_box = app.selected_theme_type == THEME_TYPE_ALL ?
+            &app.all_theme_fk_list_box : &app.folder_theme_fk_list_box;
+
+        const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(search_entry));
+        for (int i=0; i<fk_list_box->num_rows; i++) {
+            const char *icon_name = fk_list_box->rows[i].data;
+            fk_list_box->rows[i].hidden = (strstr (icon_name, search_str) == NULL);
+        }
+        fk_list_box_refresh_hidden (fk_list_box);
     }
+}
+
+void open_folder_handler (GtkButton *button, gpointer user_data)
+{
+    GtkWidget *dialog =
+        gtk_file_chooser_dialog_new ("Lookup icons in folder…",
+                                     GTK_WINDOW(app.window),
+                                     GTK_FILE_CHOOSER_ACTION_OPEN,
+                                     "_Cancel",
+                                     GTK_RESPONSE_CANCEL,
+                                     "_Install",
+                                     GTK_RESPONSE_ACCEPT,
+                                     NULL);
+
+    char *fname;
+    gint result = gtk_dialog_run (GTK_DIALOG (dialog));
+    if (result == GTK_RESPONSE_ACCEPT) {
+        app.selected_theme_type = THEME_TYPE_FOLDER;
+        fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
+        app.folder_theme_dir = pom_strdup (&app.folder_theme_pool, fname);
+
+
+
+    }
+
+    gtk_widget_destroy (dialog);
 }
 
 gboolean delete_callback (GtkWidget *widget, GdkEvent *event, gpointer user_data)
@@ -1143,9 +1224,17 @@ gboolean all_theme_row_build (gpointer key, gpointer value, gpointer data)
     return FALSE;
 }
 
+#define new_icon_button(icon_name,click_handler) new_icon_button_gcallback(icon_name,G_CALLBACK(click_handler))
+GtkWidget* new_icon_button_gcallback (const char *icon_name, GCallback click_handler)
+{
+    GtkWidget *new_button = gtk_button_new_from_icon_name (icon_name, GTK_ICON_SIZE_LARGE_TOOLBAR);
+    g_signal_connect (new_button, "clicked", G_CALLBACK (click_handler), NULL);
+    gtk_widget_show (new_button);
+    return new_button;
+}
+
 int main(int argc, char *argv[])
 {
-    GtkWidget *window;
     app = (struct app_t){
 #define EXTENSION(name,str) str,
         .valid_extensions = { VALID_EXTENSIONS }
@@ -1154,16 +1243,20 @@ int main(int argc, char *argv[])
 
     gtk_init(&argc, &argv);
 
-    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_resize (GTK_WINDOW(window), 970, 650);
-    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
+    app.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_resize (GTK_WINDOW(app.window), 970, 650);
+    gtk_window_set_position(GTK_WINDOW(app.window), GTK_WIN_POS_CENTER);
     GtkWidget *header_bar = gtk_header_bar_new ();
     gtk_header_bar_set_title (GTK_HEADER_BAR(header_bar), "Iconoscope");
     gtk_header_bar_set_show_close_button (GTK_HEADER_BAR(header_bar), TRUE);
-    gtk_window_set_titlebar (GTK_WINDOW(window), header_bar);
 
-    g_signal_connect (G_OBJECT(window), "delete-event", G_CALLBACK (delete_callback), NULL);
-    g_signal_connect (G_OBJECT(window), "key-press-event", G_CALLBACK (on_key_press), NULL);
+    GtkWidget *open_folder_button = new_icon_button ("document-open", open_folder_handler);
+    gtk_header_bar_pack_start (GTK_HEADER_BAR(header_bar), open_folder_button);
+
+    gtk_window_set_titlebar (GTK_WINDOW(app.window), header_bar);
+
+    g_signal_connect (G_OBJECT(app.window), "delete-event", G_CALLBACK (delete_callback), NULL);
+    g_signal_connect (G_OBJECT(app.window), "key-press-event", G_CALLBACK (on_key_press), NULL);
 
     app_load_all_icon_themes (&app);
 
@@ -1187,12 +1280,12 @@ int main(int argc, char *argv[])
     gtk_paned_pack1 (GTK_PANED(paned), sidebar, FALSE, FALSE);
     gtk_paned_pack2 (GTK_PANED(paned), wrap_gtk_widget(app.icon_view_widget), TRUE, TRUE);
 
-    app.all_icon_names_widget = fk_list_box_init (&app.fk_list_box,
+    app.all_icon_names_widget = fk_list_box_init (&app.all_theme_fk_list_box,
                                                   on_all_theme_row_selected);
-    fk_list_box_rows_start (&app.fk_list_box, g_tree_nnodes(app.all_icon_names));
-    g_tree_foreach (app.all_icon_names, all_theme_row_build, &app.fk_list_box);
+    fk_list_box_rows_start (&app.all_theme_fk_list_box, g_tree_nnodes(app.all_icon_names));
+    g_tree_foreach (app.all_icon_names, all_theme_row_build, &app.all_theme_fk_list_box);
 
-    app.all_icon_names_first = app.fk_list_box.rows[0].data;
+    app.all_icon_names_first = app.all_theme_fk_list_box.rows[0].data;
     g_object_ref_sink (app.all_icon_names_widget);
 
     // Set the fake "All" theme as default.
@@ -1217,13 +1310,14 @@ int main(int argc, char *argv[])
         app_set_selected_theme (&app, theme_name, icon_name);
     }
 
-    gtk_container_add(GTK_CONTAINER(window), paned);
+    gtk_container_add(GTK_CONTAINER(app.window), paned);
 
-    gtk_widget_show_all(window);
+    gtk_widget_show_all(app.window);
 
     gtk_main();
 
-    fk_list_box_destroy (&app.fk_list_box);
+    fk_list_box_destroy (&app.all_theme_fk_list_box);
+    fk_list_box_destroy (&app.folder_theme_fk_list_box);
 
     app_destroy (&app);
 
