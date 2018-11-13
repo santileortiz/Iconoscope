@@ -159,7 +159,7 @@ void replace_wrapped_widget (GtkWidget **original, GtkWidget *new_widget)
 // destroying itself from the "changed" signal. A button destroying itself from
 // the "clicked" signal worked fine though.
 //
-// In any case, if this happens, the function replace_wrapped_widget_defered()
+// In any case, if this happens, the function replace_wrapped_widget_deferred()
 // splits widget replacement so that widget destruction is triggered, and then
 // in the handler for the destroy signal, we actually replace the widget. Not
 // nice, but seems to solve the issue.
@@ -169,19 +169,19 @@ gboolean idle_widget_destroy (gpointer user_data)
     return FALSE;
 }
 
-void replace_wrapped_widget_defered_cb (GtkWidget *object, gpointer user_data)
+void replace_wrapped_widget_deferred_cb (GtkWidget *object, gpointer user_data)
 {
     // We do this here so we never add the old and new widgets to the wrapper
     // and end up increasing the allocation size and glitching/
     gtk_widget_show_all ((GtkWidget *) user_data);
 }
 
-void replace_wrapped_widget_defered (GtkWidget **original, GtkWidget *new_widget)
+void replace_wrapped_widget_deferred (GtkWidget **original, GtkWidget *new_widget)
 {
     GtkWidget *parent = gtk_widget_get_parent (*original);
     gtk_container_add (GTK_CONTAINER(parent), new_widget);
 
-    g_signal_connect (G_OBJECT(*original), "destroy", G_CALLBACK (replace_wrapped_widget_defered_cb), new_widget);
+    g_signal_connect (G_OBJECT(*original), "destroy", G_CALLBACK (replace_wrapped_widget_deferred_cb), new_widget);
     g_idle_add (idle_widget_destroy, *original);
     *original = new_widget;
 }

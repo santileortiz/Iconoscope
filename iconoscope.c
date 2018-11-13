@@ -904,7 +904,7 @@ void app_set_icon_view (struct app_t *app, const char *icon_name)
     app_update_selected_icon (app, icon_name);
     icon_view_compute (&app->icon_view_pool, app->selected_theme, icon_name, &app->icon_view);
 
-    replace_wrapped_widget_defered (&app->icon_view_widget, draw_icon_view (&app->icon_view));
+    replace_wrapped_widget_deferred (&app->icon_view_widget, draw_icon_view (&app->icon_view));
 }
 
 void on_icon_selected (GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
@@ -1123,7 +1123,7 @@ void app_set_selected_theme (struct app_t *app, const char *theme_name, const ch
         replace_wrapped_widget (&app->icon_list, new_icon_list);
 
         GtkWidget *new_theme_selector = theme_selector_new (theme_name);
-        replace_wrapped_widget_defered (&app->theme_selector, new_theme_selector);
+        replace_wrapped_widget_deferred (&app->theme_selector, new_theme_selector);
     }
 
     app_update_selected_icon (app, choosen_icon);
@@ -1161,7 +1161,7 @@ void app_set_folder_theme (struct app_t *app, char *path)
     replace_wrapped_widget (&app->icon_list, folder_icon_names_widget);
 
     GtkWidget *new_theme_selector = theme_selector_new (NULL);
-    replace_wrapped_widget_defered (&app->theme_selector, new_theme_selector);
+    replace_wrapped_widget_deferred (&app->theme_selector, new_theme_selector);
 }
 
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
@@ -1305,7 +1305,7 @@ int main(int argc, char *argv[])
         theme_name = theme->name;
 
         GtkWidget *new_theme_selector = theme_selector_new ("All");
-        replace_wrapped_widget_defered (&app.theme_selector, new_theme_selector);
+        replace_wrapped_widget_deferred (&app.theme_selector, new_theme_selector);
 
         app_set_selected_theme (&app, theme_name, icon_name);
     }
