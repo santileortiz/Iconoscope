@@ -79,9 +79,13 @@ gboolean fk_list_box_draw_text_data (GtkWidget *widget, cairo_t *cr, gpointer da
     dvec4 unfocused_text_color = RGB_255(51,51,51);
 
     struct fk_list_box_t *fk_list_box = (struct fk_list_box_t *)data;
-
     cairo_set_source_rgb (cr, 1, 1, 1);
     cairo_paint (cr);
+
+    if (fk_list_box->num_visible_rows == 0) {
+        // TODO: Show a "list empty" message
+        return TRUE;
+    }
 
     cairo_set_source_rgb (cr, ARGS_RGB(text_color));
 
