@@ -73,6 +73,7 @@ struct app_t {
     mem_pool_t folder_theme_pool;
     char *folder_theme_dir;
     struct fk_list_box_t folder_theme_fk_list_box;
+    GHashTable *folder_theme_icon_names;
 
     // Linked list head for THEME_TYPE_NORMAL themes
     struct icon_theme_t *themes;
@@ -637,6 +638,56 @@ void app_destroy (struct app_t *app)
     g_tree_destroy (app->all_icon_names);
 }
 
+// Some of the information in the icon view is derived from the base information
+// taken from the icon database (or faked for the folder theme or the unthemed
+// theme). This fuction computes that.
+void icon_view_compute_derived_data (mem_pool_t *pool, struct icon_view_t *icon_view)
+{
+    for (int i=0; i<ARRAY_SIZE(icon_view->images); i++) {
+        struct icon_image_t *img = icon_view->images[i];
+
+        while (img != NULL) {
+            // Compute label for the image
+            // NOTE: If it's the theme that contains unthemed icons. Leave the
+            // label as NULL.
+            img->label = NULL;
+            if (img->is_scalable) {
+                img->label = pprintf (pool, "Scalable");
+            } else if (img->size > 0) {
+                img->label = pprintf (pool, "%d", img->size);
+            }
+
+            // Set back pointer into icon_view_t
+            img->view = icon_view;
+
+            // Create a GtkImage for the found image
+            img->image = gtk_image_new_from_file (img->full_path);
+            struct stat st;
+            stat(img->full_path, &st);
+            img->file_size = st.st_size;
+            gtk_widget_set_valign (img->image, GTK_ALIGN_END);
+
+            // Find the size of the created image
+            GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(img->image));
+            if (pixbuf) {
+                img->width = gdk_pixbuf_get_width(pixbuf);
+                img->height = gdk_pixbuf_get_height(pixbuf);
+            }
+            gtk_widget_set_size_request (img->image, img->width, img->height);
+
+            g_assert (img->image != NULL);
+            // The container to which images will be parented will get destroyed
+            // when changing icon scales, we need to take a reference here so we
+            // can go back to them. The lifespan of these images should be equal
+            // to icon_view_t, not to their parent container.
+            // @scale_change_destroys_images
+            g_object_ref_sink (G_OBJECT(img->image));
+
+            img = img->next;
+        }
+    }
+}
+
 // This makes scalable images always sort as the largest.
 bool is_img_lt (struct icon_image_t *a, struct icon_image_t *b)
 {
@@ -807,53 +858,7 @@ void icon_view_compute (mem_pool_t *pool,
         }
     }
 
-    // Compute the remaining fields based on the ones found above
-    for (int i=0; i<ARRAY_SIZE(icon_view->images); i++) {
-        struct icon_image_t *img = icon_view->images[i];
-
-        while (img != NULL) {
-            // Compute label for the image
-            // NOTE: If it's the theme that contains unthemed icons. Leave the
-            // label as NULL.
-            img->label = NULL;
-            if (theme->dir_name != NULL) {
-                img->label = mem_pool_push_size (pool, sizeof(char)*16);
-                if (img->is_scalable) {
-                    sprintf (img->label, "Scalable");
-                } else {
-                    sprintf (img->label, "%d", img->size);
-                }
-            }
-
-            // Set back pointer into icon_view_t
-            img->view = icon_view;
-
-            // Create a GtkImage for the found image
-            img->image = gtk_image_new_from_file (img->full_path);
-            struct stat st;
-            stat(img->full_path, &st);
-            img->file_size = st.st_size;
-            gtk_widget_set_valign (img->image, GTK_ALIGN_END);
-
-            // Find the size of the created image
-            GdkPixbuf *pixbuf = gtk_image_get_pixbuf (GTK_IMAGE(img->image));
-            if (pixbuf) {
-                img->width = gdk_pixbuf_get_width(pixbuf);
-                img->height = gdk_pixbuf_get_height(pixbuf);
-            }
-            gtk_widget_set_size_request (img->image, img->width, img->height);
-
-            g_assert (img->image != NULL);
-            // The container to which images will be parented will get destroyed
-            // when changing icon scales, we need to take a reference here so we
-            // can go back to them. The lifespan of these images should be equal
-            // to icon_view_t, not to their parent container.
-            // @scale_change_destroys_images
-            g_object_ref_sink (G_OBJECT(img->image));
-
-            img = img->next;
-        }
-    }
+    icon_view_compute_derived_data (pool, icon_view);
 }
 
 void app_update_selected_icon (struct app_t *app, const char *selected_icon)
@@ -1134,12 +1139,24 @@ FK_LIST_BOX_ROW_SELECTED_CB (on_folder_theme_row_selected)
     //app_set_icon_view (&app, icon_name);
 }
 
+ITERATE_DIR_CB (folder_theme_handle_file_path)
+{
+    // TODO: Implement this!
+}
 
 void app_set_folder_theme (struct app_t *app, char *path)
 {
     // Destroy all state for the old folder theme
     fk_list_box_destroy (&app->folder_theme_fk_list_box);
+    if (app->folder_theme_icon_names != NULL)
+        g_hash_table_destroy (app->folder_theme_icon_names);
     mem_pool_destroy (&app->folder_theme_pool);
+
+    iterate_dir (path, iterate_dir_printf, app->folder_theme_icon_names);
+
+    app->folder_theme_icon_names = g_hash_table_new (g_str_hash, g_str_equal);
+
+    app->folder_theme_dir = pom_strdup (&app->folder_theme_pool, path);
 
     GtkWidget *folder_icon_names_widget = fk_list_box_init (&app->folder_theme_fk_list_box,
                                                             on_folder_theme_row_selected);
@@ -1148,7 +1165,7 @@ void app_set_folder_theme (struct app_t *app, char *path)
     replace_wrapped_widget (&app->icon_list, folder_icon_names_widget);
 
     GtkWidget *new_theme_selector = theme_selector_new (NULL);
-    replace_wrapped_widget_deferred (&app->theme_selector, new_theme_selector);
+    replace_wrapped_widget (&app->theme_selector, new_theme_selector);
 }
 
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
@@ -1176,10 +1193,10 @@ void open_folder_handler (GtkButton *button, gpointer user_data)
     GtkWidget *dialog =
         gtk_file_chooser_dialog_new ("Lookup icons in folder…",
                                      GTK_WINDOW(app.window),
-                                     GTK_FILE_CHOOSER_ACTION_OPEN,
+                                     GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
                                      "_Cancel",
                                      GTK_RESPONSE_CANCEL,
-                                     "_Install",
+                                     "_Open",
                                      GTK_RESPONSE_ACCEPT,
                                      NULL);
 
@@ -1188,10 +1205,8 @@ void open_folder_handler (GtkButton *button, gpointer user_data)
     if (result == GTK_RESPONSE_ACCEPT) {
         app.selected_theme_type = THEME_TYPE_FOLDER;
         fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
-        app.folder_theme_dir = pom_strdup (&app.folder_theme_pool, fname);
-
-
-
+        app_set_folder_theme (&app, fname);
+        g_free (fname);
     }
 
     gtk_widget_destroy (dialog);
