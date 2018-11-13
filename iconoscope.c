@@ -223,19 +223,6 @@ bool is_end_of_section (char *c)
     return *c == '[' || *c == '\0';
 }
 
-bool read_dir (DIR *dirp, struct dirent **res)
-{
-    errno = 0;
-    *res = readdir (dirp);
-    if (*res == NULL) {
-        if (errno != 0) {
-            printf ("Error while reading directory: %s", strerror (errno));
-        }
-        return false;
-    }
-    return true;
-}
-
 // NOTE: If multiple icons are found, ties are broken according to the order in
 // valid_extensions.
 bool fname_has_valid_extension (char *fname, size_t *icon_name_len)
