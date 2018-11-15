@@ -266,9 +266,16 @@ void fk_list_box_destroy_cb (GtkWidget *object, gpointer data)
     fk_list_box_destroy (fk_list_box);
 }
 
+// NOTE: The caller should allocate a fk_list_box_t structure, and this function
+// will initialize it. If the caller is thinking about reusing this structure
+// better not to do that, use fk_list_box_new() and then the caller is only
+// responsible for a pointer, memory will be freed when fk_list_box_destroy() is
+// called (maybe called automatically when the GtkWidget is destroyed if the
+// macro FK_LIST_BOX_DESTROY_WITH_WIDGET was defined).
 GtkWidget* fk_list_box_init (struct fk_list_box_t *fk_list_box,
                              fk_list_box_row_selected_cb_t *row_selected_cb)
 {
+    *fk_list_box = ZERO_INIT (struct fk_list_box_t);
     fk_list_box->widget = gtk_drawing_area_new ();
     gtk_widget_set_vexpand (fk_list_box->widget, TRUE);
     gtk_widget_set_hexpand (fk_list_box->widget, TRUE);
@@ -311,6 +318,23 @@ GtkWidget* fk_list_box_init (struct fk_list_box_t *fk_list_box,
 #endif
 
     return fk_list_box->widget;
+}
+
+// Create a fk_list_box_t with a different ownership pattern. Here the created
+// fk_list_box_t owns the memory of the fk_list_box_t structure. This is done by
+// bootstrapping it from its own pool.
+GtkWidget* fk_list_box_new (struct fk_list_box_t **fk_list_box,
+                            fk_list_box_row_selected_cb_t *row_selected_cb)
+{
+    assert (fk_list_box != NULL && "You should get a pointer here so you can add rows");
+
+    mem_pool_t bootstrap = ZERO_INIT (mem_pool_t);
+    struct fk_list_box_t *new_fk_list_box =
+        mem_pool_push_size (&bootstrap, sizeof (struct fk_list_box_t));
+    new_fk_list_box->pool = bootstrap;
+    *fk_list_box = new_fk_list_box;
+
+    return fk_list_box_init (new_fk_list_box, row_selected_cb);
 }
 
 void fk_list_box_destroy (struct fk_list_box_t *fk_list_box)

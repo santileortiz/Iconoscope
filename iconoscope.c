@@ -1,3 +1,4 @@
+#include <libgen.h>
 #include <locale.h>
 #include <cairo.h>
 #include <gtk/gtk.h>
@@ -72,8 +73,8 @@ struct app_t {
     // State if selected theme is THEME_TYPE_FOLDER
     mem_pool_t folder_theme_pool;
     char *folder_theme_dir;
-    struct fk_list_box_t folder_theme_fk_list_box;
-    GHashTable *folder_theme_icon_names;
+    struct fk_list_box_t *folder_theme_fk_list_box;
+    GTree *folder_theme_icon_names;
 
     // Linked list head for THEME_TYPE_NORMAL themes
     struct icon_theme_t *themes;
@@ -638,6 +639,18 @@ void app_destroy (struct app_t *app)
     g_tree_destroy (app->all_icon_names);
 }
 
+// This makes scalable images always sort as the largest.
+bool is_img_lt (struct icon_image_t *a, struct icon_image_t *b)
+{
+    if (a->is_scalable == b->is_scalable) {
+        return a->size < b->size;
+    } else {
+        return b->is_scalable;
+    }
+}
+
+templ_sort_ll(icon_image_sort, struct icon_image_t, is_img_lt(*a, *b))
+
 // Some of the information in the icon view is derived from the base information
 // taken from the icon database (or faked for the folder theme or the unthemed
 // theme). This fuction computes that.
@@ -647,6 +660,8 @@ void icon_view_compute_derived_data (mem_pool_t *pool, struct icon_view_t *icon_
         struct icon_image_t *img = icon_view->images[i];
 
         while (img != NULL) {
+            icon_view->images_len[i]++;
+
             // Compute label for the image
             // NOTE: If it's the theme that contains unthemed icons. Leave the
             // label as NULL.
@@ -685,20 +700,36 @@ void icon_view_compute_derived_data (mem_pool_t *pool, struct icon_view_t *icon_
 
             img = img->next;
         }
+
+        // Sort the image linked list based on their size
+        if (icon_view->images_len[i] > 1) {
+            // TODO: Sorted linked lists seem to be the common case we
+            // can detect if sorting is required before and only sort if
+            // necessary.
+            // @performance
+            icon_image_sort (&icon_view->images[i], icon_view->images_len[i]);
+        }
     }
 }
 
-// This makes scalable images always sort as the largest.
-bool is_img_lt (struct icon_image_t *a, struct icon_image_t *b)
+// Add a new icon_image_t at the end of its corresponding linked list, according
+// to the scale.
+bool icon_view_push_image (struct icon_view_t *icon_view, struct icon_image_t *new_icon_image)
 {
-    if (a->is_scalable == b->is_scalable) {
-        return a->size < b->size;
+    int scale = MAX (new_icon_image->scale, 1);
+    if (scale <= IV_MAX_SCALE) {
+        if (icon_view->images_end[scale-1] != NULL) {
+            icon_view->images_end[scale-1]->next = new_icon_image;
+        } else {
+            icon_view->images[scale-1] = new_icon_image;
+        }
+
+        icon_view->images_end[scale-1] = new_icon_image;
+        return true;
     } else {
-        return b->is_scalable;
+        return false;
     }
 }
-
-templ_sort_ll(icon_image_sort, struct icon_image_t, is_img_lt(*a, *b))
 
 void icon_view_compute (mem_pool_t *pool,
                         struct icon_theme_t *theme, const char *icon_name,
@@ -709,8 +740,6 @@ void icon_view_compute (mem_pool_t *pool,
     *icon_view = ZERO_INIT (struct icon_view_t);
     icon_view->scale = 1;
     icon_view->icon_name = pom_strndup (pool, icon_name, strlen(icon_name));
-    struct icon_image_t **last_image[] = {&icon_view->images[0], &icon_view->images[1], &icon_view->images[2]};
-    int num_images[] = {0, 0, 0};
 
     if (theme->index_file != NULL) {
         bool found_image = false;
@@ -794,33 +823,17 @@ void icon_view_compute (mem_pool_t *pool,
                     *new_img = img;
 
                     // Add the new image at the end of the corresponding linked list
-                    if (img.scale <= 3) {
+                    if (icon_view_push_image (icon_view, new_img)) {
                         found_image = true;
-                        *last_image[new_img->scale-1] = new_img;
-                        last_image[new_img->scale-1] = &new_img->next;
-                        num_images[img.scale-1]++;
-                    }  else {
-                        // TODO: Will we ever use x4 icons?
+                    } else {
                         mem_pool_end_temporary_memory (mrkr);
                     }
-
 
                 } else {
                     c = consume_section (c);
                 }
 
                 str_free (&dir);
-            }
-
-            // Sort each icon_image_t linked list
-            for (int i=0; i<ARRAY_SIZE(icon_view->images); i++) {
-                if (num_images[i] > 1) {
-                    // TODO: Sorted linked lists seem to be the common case we
-                    // can detect if sorting is required before and only sort if
-                    // necessary.
-                    // @performance
-                    icon_image_sort (&icon_view->images[i], num_images[i]);
-                }
             }
 
             str_free (&path);
@@ -849,9 +862,7 @@ void icon_view_compute (mem_pool_t *pool,
                 new_img->full_path = new_img->path;
                 new_img->scale = 1;
 
-                // Add the new image at the end of the image linked list
-                *last_image[0] = new_img;
-                last_image[0] = &new_img->next;
+                icon_view_push_image (icon_view, new_img);
             }
 
             str_free (&path);
@@ -1078,6 +1089,9 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
 {
     const char *icon_name = NULL;
     const char* theme_name = gtk_combo_box_get_active_id (themes_combobox);
+    enum theme_type_t old_theme_type = app.selected_theme_type;
+
+    const char *real_theme_name = NULL;
     if (strcmp (theme_name, "All") == 0) {
         app.selected_theme_type = THEME_TYPE_ALL;
 
@@ -1089,13 +1103,19 @@ void on_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
         }
         icon_name = app.all_icon_names_first;
         assert (theme != NULL);
-        theme_name = theme->name;
+        real_theme_name = theme->name;
 
     } else {
         app.selected_theme_type = THEME_TYPE_NORMAL;
+        real_theme_name = theme_name;
     }
 
-    app_set_selected_theme (&app, theme_name, icon_name);
+    if (old_theme_type == THEME_TYPE_FOLDER) {
+        GtkWidget *new_theme_selector = theme_selector_new (theme_name);
+        replace_wrapped_widget_deferred (&app.theme_selector, new_theme_selector);
+    }
+
+    app_set_selected_theme (&app, real_theme_name, icon_name);
 }
 
 void app_set_selected_theme (struct app_t *app, const char *theme_name, const char *selected_icon)
@@ -1124,48 +1144,133 @@ void app_set_selected_theme (struct app_t *app, const char *theme_name, const ch
 
 FK_LIST_BOX_ROW_SELECTED_CB (on_folder_theme_row_selected)
 {
-    // TODO: Implement this!
-    //const char *icon_name = fk_list_box->visible_rows[idx]->data;
+    const char *icon_name = fk_list_box->visible_rows[idx]->data;
+    struct icon_view_t *icon_view = g_tree_lookup (app.folder_theme_icon_names, icon_name);
 
-    //if (app.selected_theme_type == THEME_TYPE_ALL) {
-    //    struct icon_theme_t *theme;
-    //    for (theme = app.themes; theme; theme = theme->next) {
-    //        if (g_hash_table_contains (theme->icon_names, icon_name)) break;
-    //    }
-    //    assert (theme != NULL);
-    //    app.selected_theme = theme;
-    //}
+    // Unparent GtkImages before creating the new icon_view. draw_icon_view()
+    // will try to parent all image widgets, if we are showing this icon_view,
+    // then it will already have a parent and Gtk will complain. This can be
+    // removed if we stop using GtkImage to store images!.
+    for (int i=0; i<ARRAY_SIZE(icon_view->images); i++) {
+        struct icon_image_t *img = icon_view->images[i];
 
-    //app_set_icon_view (&app, icon_name);
+        while (img != NULL) {
+            if (img->image != NULL) {
+                GtkWidget *parent = gtk_widget_get_parent (img->image);
+                if (parent != NULL)
+                    gtk_container_remove (GTK_CONTAINER(parent), img->image);
+            }
+            img = img->next;
+        }
+    }
+
+    icon_view->image_data_dpy = NULL;
+
+    replace_wrapped_widget (&app.icon_view_widget, draw_icon_view (icon_view));
 }
+
+struct folder_theme_handle_file_path_clsr_t {
+    char *path;
+    GTree *icon_views;
+    mem_pool_t *pool;
+};
 
 ITERATE_DIR_CB (folder_theme_handle_file_path)
 {
-    // TODO: Implement this!
+    if (fname_has_valid_extension (fname, NULL)) {
+        struct folder_theme_handle_file_path_clsr_t *clsr =
+            (struct folder_theme_handle_file_path_clsr_t*)data;
+        int path_len = strlen(clsr->path);
+        if (clsr->path[path_len-1] == '/') {
+            path_len--;
+            clsr->path[path_len] = '\0';
+        }
+
+        char *rel_fname = &fname[path_len];
+        assert (rel_fname[0] == '/');
+
+        int sizes[] = {8, 16, 22, 24, 32, 36, 48, 64, 72, 96, 128, 192, 256, 512};
+        // TODO: Detect also patterns with @i and take i as the scale. Maybe use
+        // regexp if it makes it faster?.
+        char *patterns[] = {"/%dx%1$d/", "/%dX%1$d/", "/%d/"};
+        char buff[15];
+
+        char *icon_name = basename (fname);
+        icon_name = remove_extension (clsr->pool, icon_name);
+
+        for (int i=0; i<ARRAY_SIZE(sizes); i++) {
+            for (int j=0; j<ARRAY_SIZE(patterns); j++) {
+                snprintf (buff, ARRAY_SIZE(buff), patterns[j], sizes[i]);
+                if (strstr(rel_fname, buff) != NULL) {
+                    struct icon_image_t *icon_image =
+                        mem_pool_push_size (clsr->pool, sizeof(struct icon_image_t));
+                    *icon_image = ZERO_INIT (struct icon_image_t);
+                    icon_image->scale = 1;
+                    icon_image->size = sizes[i];
+                    icon_image->theme_dir = pprintf (clsr->pool, "%s/", clsr->path);
+                    icon_image->path = pom_strdup (clsr->pool, fname + path_len + 1);
+                    icon_image->full_path = pom_strdup (clsr->pool, fname);
+
+                    struct icon_view_t *icon_view;
+                    if (!g_tree_lookup_extended (clsr->icon_views, icon_name, NULL, (void**)&icon_view)) {
+                        icon_view = mem_pool_push_size (clsr->pool, sizeof(struct icon_view_t));
+                        *icon_view = ZERO_INIT (struct icon_view_t);
+                        icon_view->icon_name = pom_strdup (clsr->pool, icon_name);
+                        g_tree_insert (clsr->icon_views, icon_name, icon_view);
+                    }
+
+                    icon_view_push_image (icon_view, icon_image);
+                }
+            }
+        }
+    }
+}
+
+gboolean folder_theme_foreach_icon_view (gpointer key, gpointer value, gpointer data)
+{
+    icon_view_compute_derived_data ((mem_pool_t*)data, (struct icon_view_t *)value);
+    return FALSE;
+}
+
+gboolean folder_theme_row_build (gpointer key, gpointer value, gpointer data)
+{
+    struct fk_list_box_t *fk_list_box = (struct fk_list_box_t *)data;
+    struct fk_list_box_row_t *row = fk_list_box_row_new (fk_list_box);
+    row->data = key;
+    return FALSE;
 }
 
 void app_set_folder_theme (struct app_t *app, char *path)
 {
     // Destroy all state for the old folder theme
-    fk_list_box_destroy (&app->folder_theme_fk_list_box);
     if (app->folder_theme_icon_names != NULL)
-        g_hash_table_destroy (app->folder_theme_icon_names);
+        g_tree_destroy (app->folder_theme_icon_names);
     mem_pool_destroy (&app->folder_theme_pool);
+    app->folder_theme_pool = ZERO_INIT (mem_pool_t);
 
-    iterate_dir (path, iterate_dir_printf, app->folder_theme_icon_names);
+    struct folder_theme_handle_file_path_clsr_t clsr;
+    clsr.path = path;
+    clsr.icon_views = g_tree_new (str_cmp_callback);
+    clsr.pool = &app->folder_theme_pool;
+    iterate_dir (path, folder_theme_handle_file_path, &clsr);
+    g_tree_foreach (clsr.icon_views, folder_theme_foreach_icon_view, clsr.pool);
 
-    app->folder_theme_icon_names = g_hash_table_new (g_str_hash, g_str_equal);
-
+    app->folder_theme_icon_names = clsr.icon_views;
     app->folder_theme_dir = pom_strdup (&app->folder_theme_pool, path);
 
-    GtkWidget *folder_icon_names_widget = fk_list_box_init (&app->folder_theme_fk_list_box,
-                                                            on_folder_theme_row_selected);
-    //fk_list_box_rows_start (&app->folder_theme_fk_list_box, g_tree_nnodes(app->all_icon_names));
+    GtkWidget *folder_icon_names_widget = fk_list_box_new (&app->folder_theme_fk_list_box,
+                                                           on_folder_theme_row_selected);
+    fk_list_box_rows_start (app->folder_theme_fk_list_box, g_tree_nnodes(clsr.icon_views));
+    g_tree_foreach (clsr.icon_views, folder_theme_row_build, app->folder_theme_fk_list_box);
 
     replace_wrapped_widget (&app->icon_list, folder_icon_names_widget);
 
     GtkWidget *new_theme_selector = theme_selector_new (NULL);
     replace_wrapped_widget (&app->theme_selector, new_theme_selector);
+
+    const char *first_icon_name = app->folder_theme_fk_list_box->visible_rows[0]->data;
+    struct icon_view_t *first_icon_view = g_tree_lookup (app->folder_theme_icon_names, first_icon_name);
+    replace_wrapped_widget_deferred (&app->icon_view_widget, draw_icon_view (first_icon_view));
 }
 
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
@@ -1177,7 +1282,7 @@ void on_search_changed (GtkEditable *search_entry, gpointer user_data)
         assert (app.selected_theme_type == THEME_TYPE_ALL || app.selected_theme_type == THEME_TYPE_FOLDER);
 
         struct fk_list_box_t *fk_list_box = app.selected_theme_type == THEME_TYPE_ALL ?
-            &app.all_theme_fk_list_box : &app.folder_theme_fk_list_box;
+            &app.all_theme_fk_list_box : app.folder_theme_fk_list_box;
 
         const gchar *search_str = gtk_entry_get_text (GTK_ENTRY(search_entry));
         for (int i=0; i<fk_list_box->num_rows; i++) {
@@ -1318,8 +1423,11 @@ int main(int argc, char *argv[])
 
     gtk_main();
 
-    fk_list_box_destroy (&app.all_theme_fk_list_box);
-    fk_list_box_destroy (&app.folder_theme_fk_list_box);
+    // Not really necessary because memory will be freed anyway, but useful if
+    // we ever want to run valgrind on the application. It's not freed
+    // automatically because we sunk this widget so it didn't get destroyed when
+    // it was unparented.
+    g_object_unref (app.all_icon_names_widget);
 
     app_destroy (&app);
 

@@ -28,14 +28,14 @@ struct icon_image_t {
     GtkCssProvider *custom_css;
 };
 
+#define IV_MAX_SCALE 3
 struct icon_view_t {
     char *icon_name;
 
     int scale;
-    struct icon_image_t *images[3];
-
-    //int num_other_themes;
-    //char **other_themes;
+    struct icon_image_t *images[IV_MAX_SCALE];
+    struct icon_image_t *images_end[IV_MAX_SCALE];
+    int images_len[IV_MAX_SCALE];
 
     // UI Widgets
     GtkWidget *icon_dpy;
