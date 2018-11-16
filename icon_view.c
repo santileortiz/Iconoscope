@@ -325,7 +325,13 @@ GtkWidget* scale_selector_new (struct icon_view_t *icon_view)
 void on_icon_view_theme_changed (GtkComboBox *themes_combobox, gpointer user_data)
 {
     const char* theme_name = gtk_combo_box_get_active_id (themes_combobox);
-    app_set_selected_theme (&app, theme_name, app.selected_icon);
+    if (app.selected_theme_type == THEME_TYPE_ALL) {
+        app_set_selected_theme (&app, theme_name);
+        app_set_icon_view (&app, app.selected_icon);
+
+    } else {
+        app_set_normal_theme (&app, theme_name, app.selected_icon);
+    }
 }
 
 GtkWidget* draw_icon_view (struct icon_view_t *icon_view)
