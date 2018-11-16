@@ -2206,6 +2206,29 @@ bool path_exists (char *path)
     return retval;
 }
 
+bool dir_exists (char *path)
+{
+    bool retval = true;
+    char *dir_path = sh_expand (path, NULL);
+
+    struct stat st;
+    int status;
+    if ((status = stat(dir_path, &st)) == -1) {
+        retval = false;
+        if (errno != ENOENT) {
+            printf ("Error checking existance of %s: %s\n", path, strerror(errno));
+        }
+
+    } else {
+        if (!S_ISDIR(st.st_mode)) {
+            return false;
+        }
+    }
+
+    free (dir_path);
+    return retval;
+}
+
 // NOTE: Returns false if there was an error creating the directory.
 bool ensure_dir_exists (char *path)
 {
