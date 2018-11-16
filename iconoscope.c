@@ -1242,6 +1242,8 @@ gboolean folder_theme_row_build (gpointer key, gpointer value, gpointer data)
 
 void app_set_folder_theme (struct app_t *app, char *path)
 {
+    app->selected_theme_type = THEME_TYPE_FOLDER;
+
     // Destroy all state for the old folder theme
     if (app->folder_theme_icon_names != NULL)
         g_tree_destroy (app->folder_theme_icon_names);
@@ -1308,7 +1310,6 @@ void open_folder_handler (GtkButton *button, gpointer user_data)
     char *fname;
     gint result = gtk_dialog_run (GTK_DIALOG (dialog));
     if (result == GTK_RESPONSE_ACCEPT) {
-        app.selected_theme_type = THEME_TYPE_FOLDER;
         fname = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER(dialog));
         app_set_folder_theme (&app, fname);
         g_free (fname);
@@ -1395,8 +1396,10 @@ int main(int argc, char *argv[])
     app.all_icon_names_first = app.all_theme_fk_list_box.rows[0].data;
     g_object_ref_sink (app.all_icon_names_widget);
 
-    // Set the fake "All" theme as default.
-    {
+    if (argc == 2 && dir_exists (argv[1])) {
+        app_set_folder_theme (&app, argv[1]);
+
+    } else {
         const char *icon_name = NULL;
         const char* theme_name = NULL;
         app.selected_theme_type = THEME_TYPE_ALL;
