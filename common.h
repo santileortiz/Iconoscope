@@ -2319,7 +2319,7 @@ bool read_dir (DIR *dirp, struct dirent **res)
 // Usage:
 //  iterate_dir (path, callback_name, data);
 //
-// The function _callback name will be called for each file under _path_. The
+// The function _callback_name_ will be called for each file under _path_. The
 // function iterate_dir_printf() is an example callback. To define a new
 // callback called my_cb use:
 //
@@ -2332,7 +2332,7 @@ bool read_dir (DIR *dirp, struct dirent **res)
 // TODO: Make a non-recursive version of this and maybe don't even use a
 // callback but use a macro that hides a while or for loop behind. Making code
 // much more readable, and not requiring closures.
-#define ITERATE_DIR_CB(name) void name(char *fname, void *data)
+#define ITERATE_DIR_CB(name) void name(char *fname, bool is_dir, void *data)
 typedef ITERATE_DIR_CB(iterate_dir_cb_t);
 
 ITERATE_DIR_CB (iterate_dir_printf)
@@ -2345,6 +2345,7 @@ void iterate_dir_helper (string_t *path,  iterate_dir_cb_t *callback, void *data
     int path_len = str_len (path);
 
     struct stat st;
+    callback (str_data(path), true, data);
     DIR *d = opendir (str_data(path));
     struct dirent *entry_info;
     while (read_dir (d, &entry_info)) {
@@ -2352,7 +2353,7 @@ void iterate_dir_helper (string_t *path,  iterate_dir_cb_t *callback, void *data
             str_put_c (path, path_len, entry_info->d_name);
             if (stat(str_data(path), &st) == 0) {
                 if (S_ISREG(st.st_mode)) {
-                    callback (str_data(path), data);
+                    callback (str_data(path), false, data);
 
                 } else if (S_ISDIR(st.st_mode)) {
                     str_cat_c (path, "/");
