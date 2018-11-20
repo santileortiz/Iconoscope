@@ -1,3 +1,4 @@
+#include <sys/inotify.h>
 #include <libgen.h>
 #include <locale.h>
 #include <cairo.h>
@@ -77,6 +78,7 @@ struct app_t {
     char *folder_theme_dir;
     struct fk_list_box_t *folder_theme_fk_list_box;
     GTree *folder_theme_icon_names;
+    int folder_theme_inotify;
 
     // Linked list head for THEME_TYPE_NORMAL themes
     struct icon_theme_t *themes;
@@ -1188,32 +1190,67 @@ FK_LIST_BOX_ROW_SELECTED_CB (on_folder_theme_row_selected)
     replace_wrapped_widget (&app.icon_view_widget, draw_icon_view (icon_view));
 }
 
+ITERATE_DIR_CB (dir_watch_setup_cb)
+{
+    int inotify = *(int*)data;
+    if (is_dir) {
+        inotify_add_watch (inotify, fname, IN_CREATE|IN_DELETE|IN_MODIFY|IN_MOVE);
+    }
+}
+
+int dir_watch_recursive (char *path)
+{
+    int fd = inotify_init1 (O_NONBLOCK);
+    if (fd != -1) {
+        iterate_dir (path, dir_watch_setup_cb, &fd);
+
+    } else {
+        printf ("Failed to get a inotify instance.\n");
+    }
+
+    return fd;
+}
+
+// This will be called once every FOLDER_THEME_CHECK_DELAY seconds to check if
+// the directory changed
+#define FOLDER_THEME_CHECK_DELAY 1
+void app_set_folder_theme (struct app_t *app, char *path);
+gboolean folder_theme_check_inotify (gpointer data)
+{
+    if (app.selected_theme_type == THEME_TYPE_FOLDER && app.folder_theme_inotify > 0) {
+        size_t event_size = sizeof(struct inotify_event)+NAME_MAX+1;
+        char buff [event_size];
+        size_t status = 0;
+        size_t bytes_read = 0;
+        do {
+            status = read (app.folder_theme_inotify, buff, event_size);
+            if (status != -1) {
+                bytes_read += status;
+            }
+
+        } while (status != -1);
+
+        if (bytes_read > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // Something changed in the directory, rebuld the folder theme.
+            // NOTE: app.folder_theme_dir will be destroyed inside
+            // app_set_folder_theme() we duplicate it so we don't have issues.
+            char *theme_dir_copy = strdup (app.folder_theme_dir);
+            app_set_folder_theme (&app, theme_dir_copy);
+            free (theme_dir_copy);
+        }
+    }
+    return G_SOURCE_CONTINUE;
+}
+
 struct folder_theme_handle_file_path_clsr_t {
     char *path;
     GTree *icon_views;
     mem_pool_t *pool;
 };
 
-#define APP_MONITOR_DIR_CB(name) void name(void *data)
-typedef APP_MONITOR_DIR_CB(app_monitor_dir_cb_t);
-
-void app_monitor_dir (char *dir_path, app_monitor_dir_cb_t *callback, void *data)
-{
-    // TODO: Implement this!
-}
-
-void app_set_folder_theme (struct app_t *app, char *path);
-APP_MONITOR_DIR_CB (folder_theme_rebuild)
-{
-    app_set_folder_theme (&app, app.folder_theme_dir);
-}
-
 ITERATE_DIR_CB (folder_theme_handle_file_path)
 {
-    if (is_dir) {
-        app_monitor_dir (fname, folder_theme_rebuild, NULL);
-
-    } else if (fname_has_valid_extension (fname, NULL)) {
+    if (!is_dir && fname_has_valid_extension (fname, NULL)) {
         struct folder_theme_handle_file_path_clsr_t *clsr =
             (struct folder_theme_handle_file_path_clsr_t*)data;
         int path_len = strlen(clsr->path);
@@ -1286,6 +1323,11 @@ void app_set_folder_theme (struct app_t *app, char *path)
         g_tree_destroy (app->folder_theme_icon_names);
     mem_pool_destroy (&app->folder_theme_pool);
     app->folder_theme_pool = ZERO_INIT (mem_pool_t);
+    if (app->folder_theme_inotify != 0) {
+        close (app->folder_theme_inotify);
+    }
+
+    app->folder_theme_inotify = dir_watch_recursive (path);
 
     struct folder_theme_handle_file_path_clsr_t clsr;
     clsr.path = path;
@@ -1443,6 +1485,8 @@ int main(int argc, char *argv[])
     gtk_container_add(GTK_CONTAINER(app.window), paned);
 
     gtk_widget_show_all(app.window);
+
+    g_timeout_add_seconds (FOLDER_THEME_CHECK_DELAY, folder_theme_check_inotify, NULL);
 
     gtk_main();
 
