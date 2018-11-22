@@ -5,13 +5,47 @@
   <metadata_license>CC0</metadata_license>
   <project_license>GPL-3.0+</project_license>
   <name>Iconoscope</name>
-  <summary>Simple icon visualizer</summary>
+  <summary>Explore the icon database in your system.</summary>
   <description>
-    <p>View icons installed in your system and their properties.</p>
+      <p>
+          Easily visualize icons to find inconsistencies, or check the look of icons in different themes. Some useful features include:
+      </p>
+
+      <ul>
+          <li>Display icon information according to Freedesktop's Icon Theme Specification (size, scale, context, etc.).</li>
+          <li>Display icon file information (location, file size, image size, etc.).</li>
+          <li>Compare the same icon across different installed themes.</li>
+          <li>Search all available icons by name.</li>
+          <li>Real time monitoring of an icon develompment folder (useful to catch inconcistencies while designing icons).</li>
+      </ul>
   </description>
 
   <releases>
-      <release version="0.9.0" date="2018-10-10">
+      <release version="0.9.4" date="2018-11-21">
+          <description>
+              <p>New features for designers:</p>
+              <ul>
+                  <li>Monitor icon development directories. Icon size will be guessed based on the name of the subdirectory it's in.</li>
+                  <li>Easily move icons into another application by using drag and drop. Useful when creating mockups.</li>
+              </ul>
+          </description>
+      </release>
+
+      <release version="0.9.3" date="2018-10-31">
+          <description>
+              <p>Easier navigation across themes and icons</p>
+              <ul>
+                  <li>New "All" theme that includes all icons in the system.</li>
+                  <li>Easy comparison of the same icon across different themes.</li>
+                  <li>Allow to change the background color.</li>
+                  <li>Mark the selected icon.</li>
+                  <li>Improved reliability and performance.</li>
+                  <li>Convert text to path in Iconoscope's icon.</li>
+              </ul>
+          </description>
+      </release>
+
+      <release version="0.9.1" date="2018-10-10">
           <description>
               <p>Improved UI and make app ready for Juno</p>
               <ul>
@@ -42,6 +76,9 @@
       <screenshot type="default">
           <image>https://raw.githubusercontent.com/santileortiz/Iconoscope/master/data/screenshot.png</image>
       </screenshot>
+      <screenshot type="default">
+          <image>https://raw.githubusercontent.com/santileortiz/Iconoscope/master/data/screenshot1.png</image>
+      </screenshot>
   </screenshots>
 
   <developer_name>Santiago León O.</developer_name>
@@ -52,6 +89,7 @@
   <custom>
       <value key="x-appcenter-color-primary">#ffed6b</value>
       <value key="x-appcenter-color-primary-text">#692b00</value>
+      <value key="x-appcenter-suggested-price">10</value>
   </custom>
 
   <content_rating type="oars-1.1">
