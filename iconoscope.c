@@ -1085,6 +1085,7 @@ GtkWidget *theme_selector_new (const char *theme_name)
         gtk_combo_box_set_active_id (GTK_COMBO_BOX(themes_combobox), theme_name);
     }
 
+    gtk_widget_set_hexpand (themes_combobox, TRUE);
     g_signal_connect (G_OBJECT(themes_combobox), "changed", G_CALLBACK (on_theme_changed), NULL);
     return theme_selector;
 }
@@ -1458,6 +1459,7 @@ int main(int argc, char *argv[])
     app.theme_selector = gtk_grid_new (); // Placeholder
 
     GtkWidget *sidebar = gtk_grid_new ();
+    gtk_widget_set_size_request (sidebar, 200, 0);
     gtk_grid_attach (GTK_GRID(sidebar), app.search_entry, 0, 0, 1, 1);
     gtk_grid_attach (GTK_GRID(sidebar), scrolled_icon_list, 0, 1, 1, 1);
     gtk_grid_attach (GTK_GRID(sidebar), wrap_gtk_widget(app.theme_selector), 0, 2, 1, 1);
