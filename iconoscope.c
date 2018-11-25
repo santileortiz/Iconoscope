@@ -1215,7 +1215,7 @@ int dir_watch_recursive (char *path)
 // This will be called once every FOLDER_THEME_CHECK_DELAY seconds to check if
 // the directory changed
 #define FOLDER_THEME_CHECK_DELAY 1
-void app_set_folder_theme (struct app_t *app, char *path);
+bool app_set_folder_theme (struct app_t *app, char *path);
 gboolean folder_theme_check_inotify (gpointer data)
 {
     if (app.selected_theme_type == THEME_TYPE_FOLDER && app.folder_theme_inotify > 0) {
@@ -1233,11 +1233,7 @@ gboolean folder_theme_check_inotify (gpointer data)
 
         if (bytes_read > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             // Something changed in the directory, rebuld the folder theme.
-            // NOTE: app.folder_theme_dir will be destroyed inside
-            // app_set_folder_theme() we duplicate it so we don't have issues.
-            char *theme_dir_copy = strdup (app.folder_theme_dir);
-            app_set_folder_theme (&app, theme_dir_copy);
-            free (theme_dir_copy);
+            app_set_folder_theme (&app, app.folder_theme_dir);
         }
     }
     return G_SOURCE_CONTINUE;
@@ -1314,45 +1310,75 @@ gboolean folder_theme_row_build (gpointer key, gpointer value, gpointer data)
     return FALSE;
 }
 
-void app_set_folder_theme (struct app_t *app, char *path)
+bool app_set_folder_theme (struct app_t *app, char *path)
 {
-    app->selected_theme_type = THEME_TYPE_FOLDER;
-    app->selected_theme = NULL; // Ignored for the Folder theme
-
-    // Destroy all state for the old folder theme
-    if (app->folder_theme_icon_names != NULL)
-        g_tree_destroy (app->folder_theme_icon_names);
-    mem_pool_destroy (&app->folder_theme_pool);
-    app->folder_theme_pool = ZERO_INIT (mem_pool_t);
-    if (app->folder_theme_inotify != 0) {
-        close (app->folder_theme_inotify);
+    bool something_found = false;
+    mem_pool_t pool = ZERO_INIT(mem_pool_t);
+    GTree *icon_views = g_tree_new (str_cmp_callback);
+    {
+        struct folder_theme_handle_file_path_clsr_t clsr;
+        clsr.path = path;
+        clsr.icon_views = icon_views;
+        clsr.pool = &pool;
+        iterate_dir (path, folder_theme_handle_file_path, &clsr);
+        g_tree_foreach (icon_views, folder_theme_foreach_icon_view, clsr.pool);
     }
 
-    app->folder_theme_inotify = dir_watch_recursive (path);
+    if (g_tree_nnodes (icon_views) > 0) {
+        something_found = true;
 
-    struct folder_theme_handle_file_path_clsr_t clsr;
-    clsr.path = path;
-    clsr.icon_views = g_tree_new (str_cmp_callback);
-    clsr.pool = &app->folder_theme_pool;
-    iterate_dir (path, folder_theme_handle_file_path, &clsr);
-    g_tree_foreach (clsr.icon_views, folder_theme_foreach_icon_view, clsr.pool);
+        // Set the current theme to be the created folder theme
+        app->selected_theme_type = THEME_TYPE_FOLDER;
+        app->selected_theme = NULL; // Ignored for the Folder theme
+        app->folder_theme_dir = pom_strdup (&pool, path);
 
-    app->folder_theme_icon_names = clsr.icon_views;
-    app->folder_theme_dir = pom_strdup (&app->folder_theme_pool, path);
+        // Replace UI Widgets
+        {
+            // Icon list
+            GtkWidget *folder_icon_names_widget = fk_list_box_new (&app->folder_theme_fk_list_box,
+                                                                   on_folder_theme_row_selected);
+            fk_list_box_rows_start (app->folder_theme_fk_list_box, g_tree_nnodes(icon_views));
+            g_tree_foreach (icon_views, folder_theme_row_build, app->folder_theme_fk_list_box);
+            replace_wrapped_widget (&app->icon_list, folder_icon_names_widget);
 
-    GtkWidget *folder_icon_names_widget = fk_list_box_new (&app->folder_theme_fk_list_box,
-                                                           on_folder_theme_row_selected);
-    fk_list_box_rows_start (app->folder_theme_fk_list_box, g_tree_nnodes(clsr.icon_views));
-    g_tree_foreach (clsr.icon_views, folder_theme_row_build, app->folder_theme_fk_list_box);
+            // Theme selector
+            GtkWidget *new_theme_selector = theme_selector_new (NULL);
+            replace_wrapped_widget (&app->theme_selector, new_theme_selector);
 
-    replace_wrapped_widget (&app->icon_list, folder_icon_names_widget);
+            // Icon view
+            const char *first_icon_name = app->folder_theme_fk_list_box->visible_rows[0]->data;
+            struct icon_view_t *first_icon_view = g_tree_lookup (icon_views, first_icon_name);
+            replace_wrapped_widget (&app->icon_view_widget, draw_icon_view (first_icon_view));
+        }
 
-    GtkWidget *new_theme_selector = theme_selector_new (NULL);
-    replace_wrapped_widget (&app->theme_selector, new_theme_selector);
+        // Replace the GTree folder_theme_icon_names
+        if (app->folder_theme_icon_names != NULL)
+            g_tree_destroy (app->folder_theme_icon_names);
+        app->folder_theme_icon_names = icon_views;
 
-    const char *first_icon_name = app->folder_theme_fk_list_box->visible_rows[0]->data;
-    struct icon_view_t *first_icon_view = g_tree_lookup (app->folder_theme_icon_names, first_icon_name);
-    replace_wrapped_widget_deferred (&app->icon_view_widget, draw_icon_view (first_icon_view));
+        // Replace the inotify file descriptor
+        if (app->folder_theme_inotify != 0) {
+            close (app->folder_theme_inotify);
+        }
+        app->folder_theme_inotify = dir_watch_recursive (path);
+
+        // Replace the memory pool
+        mem_pool_destroy (&app->folder_theme_pool);
+        app->folder_theme_pool = pool;
+
+    } else {
+        // TODO: Maybe a better behavior in this case is to show an empty icon
+        // list. The problem is the current empty list is blank, it should show
+        // some feedback saying why it's blank.
+        something_found = false;
+
+        // Didn't find any icon in the folder, destroy everything we created.
+        printf ("No icons or size subdirectories found in: %s\n", path);
+        g_tree_destroy (icon_views);
+        mem_pool_destroy (&pool);
+    }
+
+    return something_found;
 }
 
 void on_search_changed (GtkEditable *search_entry, gpointer user_data)
@@ -1477,10 +1503,13 @@ int main(int argc, char *argv[])
     app.all_icon_names_first = app.all_theme_fk_list_box.rows[0].data;
     g_object_ref_sink (app.all_icon_names_widget);
 
+    bool folder_theme_used = false;
     if (argc == 2 && dir_exists (argv[1])) {
-        app_set_folder_theme (&app, argv[1]);
+        folder_theme_used = app_set_folder_theme (&app, argv[1]);
 
-    } else {
+    }
+
+    if (!folder_theme_used) {
         app_set_all_theme (&app);
     }
 
