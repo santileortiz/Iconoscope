@@ -200,11 +200,12 @@ void fk_list_box_refresh_hidden (struct fk_list_box_t *fk_list_box)
     gtk_widget_queue_draw (fk_list_box->widget);
 }
 
+// This is used when the caller doesn't want the callbak to be called or a
+// redraw to be queried. Use fk_list_box_change_selected() if you do.
 // NOTE: idx is the index of the selected row in the visible_rows array.
-void fk_list_box_change_selected (struct fk_list_box_t *fk_list_box, int idx)
+void fk_list_box_set_selected (struct fk_list_box_t *fk_list_box, int idx)
 {
-    assert (idx >= 0);
-    assert (idx < fk_list_box->num_visible_rows);
+    assert (idx >= 0 && idx < fk_list_box->num_visible_rows);
 
     fk_list_box->selected_row_idx = idx;
     fk_list_box->selected_row = fk_list_box->visible_rows[idx];
@@ -216,7 +217,14 @@ void fk_list_box_change_selected (struct fk_list_box_t *fk_list_box, int idx)
         double y = fk_list_box->selected_row_idx*fk_list_box->row_height;
         gtk_adjustment_clamp_page (adjustment, y, y + fk_list_box->row_height);
     }
+}
 
+// NOTE: idx is the index of the selected row in the visible_rows array.
+void fk_list_box_change_selected (struct fk_list_box_t *fk_list_box, int idx)
+{
+    assert (idx >= 0 && idx < fk_list_box->num_visible_rows);
+
+    fk_list_box_set_selected (fk_list_box, idx);
     fk_list_box->row_selected_cb (fk_list_box, fk_list_box->selected_row_idx);
     gtk_widget_queue_draw (fk_list_box->widget);
 }

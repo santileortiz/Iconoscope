@@ -1232,8 +1232,32 @@ gboolean folder_theme_check_inotify (gpointer data)
         } while (status != -1);
 
         if (bytes_read > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            // Something changed in the directory, rebuld the folder theme.
+            // Something changed in the directory, rebuld the folder theme,
+            // while keeping the same icon selected.
+
+            // Currently this is the only place where we care about selecting an
+            // icon after calling app_set_folder_theme(), in all other places we
+            // just select the first one. If this becomes more common, then
+            // maybe move this logic inside app_set_folder_theme(). Doing this
+            // also avoids creating (and destroying) an unnecessary
+            // app->icon_view_widget for the first icon in the list.
+            //
+            // NOTE: The selected icon name string is allocated inside
+            // folder_theme_fk_list_box and it will be destroyed inside
+            // app_set_folder_theme, we back it up.
+            char *old_selected_icon = strdup (app.folder_theme_fk_list_box->selected_row->data);
             app_set_folder_theme (&app, app.folder_theme_dir);
+
+            // Re select the previously selected icon (if it's still there).
+            struct fk_list_box_t *fk_list_box = app.folder_theme_fk_list_box;
+            for (int i=0 ; i<fk_list_box->num_visible_rows; i++) {
+                char *icon_name = fk_list_box->visible_rows[i]->data;
+                if (strcmp (old_selected_icon, icon_name) == 0) {
+                    fk_list_box_change_selected (fk_list_box, i);
+                }
+            }
+
+            free (old_selected_icon);
         }
     }
     return G_SOURCE_CONTINUE;
@@ -1304,7 +1328,7 @@ gboolean folder_theme_foreach_icon_view (gpointer key, gpointer value, gpointer 
 
 gboolean folder_theme_row_build (gpointer key, gpointer value, gpointer data)
 {
-    struct fk_list_box_t *fk_list_box = (struct fk_list_box_t *)data;
+    struct fk_list_box_t *fk_list_box = (struct fk_list_box_t*)data;
     struct fk_list_box_row_t *row = fk_list_box_row_new (fk_list_box);
     row->data = key;
     return FALSE;
@@ -1335,20 +1359,22 @@ bool app_set_folder_theme (struct app_t *app, char *path)
         // Replace UI Widgets
         {
             // Icon list
-            GtkWidget *folder_icon_names_widget = fk_list_box_new (&app->folder_theme_fk_list_box,
-                                                                   on_folder_theme_row_selected);
+            GtkWidget *new_icon_list = fk_list_box_new (&app->folder_theme_fk_list_box,
+                                                        on_folder_theme_row_selected);
             fk_list_box_rows_start (app->folder_theme_fk_list_box, g_tree_nnodes(icon_views));
             g_tree_foreach (icon_views, folder_theme_row_build, app->folder_theme_fk_list_box);
-            replace_wrapped_widget (&app->icon_list, folder_icon_names_widget);
+            // TODO: Don't tie the lifespan of app->folder_theme_fk_list_box to
+            // the new_icon_list widget, allocate everything inside app->folder_theme_pool.
+            replace_wrapped_widget (&app->icon_list, new_icon_list);
 
             // Theme selector
             GtkWidget *new_theme_selector = theme_selector_new (NULL);
             replace_wrapped_widget (&app->theme_selector, new_theme_selector);
 
             // Icon view
-            const char *first_icon_name = app->folder_theme_fk_list_box->visible_rows[0]->data;
-            struct icon_view_t *first_icon_view = g_tree_lookup (icon_views, first_icon_name);
-            replace_wrapped_widget (&app->icon_view_widget, draw_icon_view (first_icon_view));
+            const char *selected_icon_name = app->folder_theme_fk_list_box->selected_row->data;
+            struct icon_view_t *selected_icon_view = g_tree_lookup (icon_views, selected_icon_name);
+            replace_wrapped_widget (&app->icon_view_widget, draw_icon_view (selected_icon_view));
         }
 
         // Replace the GTree folder_theme_icon_names
