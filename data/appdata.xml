@@ -21,6 +21,16 @@
   </description>
 
   <releases>
+      <release version="0.9.6" date="2018-11-21">
+          <description>
+              <p>Packaging fixes</p>
+              <ul>
+                  <li>Update travis.</li>
+                  <li>Small bugfixes on the folder theme.</li>
+              </ul>
+          </description>
+      </release>
+
       <release version="0.9.5" date="2018-11-21">
           <description>
               <p>New features for designers:</p>
