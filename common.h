@@ -4,6 +4,7 @@
 
 #if !defined(COMMON_H)
 #include <stdio.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <inttypes.h>
 #include <sys/stat.h>
@@ -15,6 +16,7 @@
 #include <wordexp.h>
 #include <math.h>
 #include <stdarg.h>
+#include <dirent.h>
 
 #ifdef __cplusplus
 #define ZERO_INIT(type) (type){}
@@ -1775,6 +1777,7 @@ enum alloc_opts {
 #define mem_pool_push_size(pool, size) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED)
 void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts opts)
 {
+    assert (pool != NULL);
     if (size == 0) return NULL;
 
     if (pool->used + size >= pool->size) {
@@ -2389,7 +2392,7 @@ char* change_extension (mem_pool_t *pool, char *path, char *new_ext)
         i--;
     }
 
-    char *res = (char*)mem_pool_push_size (pool, path_len+strlen(new_ext)+1);
+    char *res = (char*)pom_push_size (pool, path_len+strlen(new_ext)+1);
     strcpy (res, path);
     strcpy (&res[i], new_ext);
     return res;
@@ -2407,16 +2410,28 @@ char* remove_extension (mem_pool_t *pool, char *path)
         return NULL;
     }
 
-    char *res = (char*)mem_pool_push_size (pool, end_pos+1);
-    memmove (res, path, end_pos);
-    res[end_pos] = '\0';
-    return res;
+    return pom_strndup (pool, path, end_pos);
+}
+
+char* remove_multiple_extensions (mem_pool_t *pool, char *path, int num)
+{
+    char *retval;
+    if (num > 1) {
+        char *next_path = remove_extension (NULL, path);
+        retval = remove_multiple_extensions (pool, next_path, num-1);
+        free (next_path);
+
+    } else {
+        retval = remove_extension (pool, path);
+    }
+
+    return retval;
 }
 
 char* add_extension (mem_pool_t *pool, char *path, char *new_ext)
 {
     size_t path_len = strlen(path);
-    char *res = (char*)mem_pool_push_size (pool, path_len+strlen(new_ext)+2);
+    char *res = (char*)pom_push_size (pool, path_len+strlen(new_ext)+2);
     strcpy (res, path);
     res[path_len++] = '.';
     strcpy (&res[path_len], new_ext);
@@ -2438,6 +2453,26 @@ char* get_extension (char *path)
     }
 
     return &path[i+1];
+}
+
+void path_split (mem_pool_t *pool, char *path, char **dirname, char **basename)
+{
+    if (path == NULL) {
+        return;
+    }
+
+    size_t end = strlen (path);
+    while (path[end] != '/') {
+        end--;
+    }
+
+    if (dirname != NULL) {
+        *dirname = pom_strndup (pool, path, end);
+    }
+
+    if (basename != NULL) {
+        *basename = pom_strdup (pool, &path[end+1]);
+    }
 }
 
 #ifdef __CURL_CURL_H
