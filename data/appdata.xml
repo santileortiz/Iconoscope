@@ -21,6 +21,15 @@
   </description>
 
   <releases>
+      <release version="0.9.7" date="2018-11-21">
+          <description>
+              <p>AppCenter updates were stuck at v0.1.4. Sorry about that!.</p>
+              <ul>
+                  <li>4 releases worth of features and improvements.</li>
+              </ul>
+          </description>
+      </release>
+
       <release version="0.9.6" date="2018-11-21">
           <description>
               <p>Packaging fixes</p>
