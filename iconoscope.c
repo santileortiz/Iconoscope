@@ -968,54 +968,6 @@ struct all_theme_list_build_clsr_t {
     const char *selected_icon;
 };
 
-gboolean all_theme_list_build (gpointer key, gpointer value, gpointer data)
-{
-    struct all_theme_list_build_clsr_t *clsr = (struct all_theme_list_build_clsr_t*)data;
-
-    GtkWidget *row = gtk_label_new (key);
-    gtk_container_add (GTK_CONTAINER(clsr->new_icon_list), row);
-    gtk_widget_set_halign (row, GTK_ALIGN_START);
-
-    if (clsr->selected_icon == NULL && clsr->first) {
-        clsr->first = false;
-        clsr->selected_icon = key;
-    }
-
-    if (strcmp (clsr->selected_icon, key) == 0) {
-        GtkWidget *r = gtk_widget_get_parent (row);
-        gtk_list_box_select_row (GTK_LIST_BOX(clsr->new_icon_list), GTK_LIST_BOX_ROW(r));
-    }
-
-    gtk_widget_set_margin_start (row, 6);
-    gtk_widget_set_margin_end (row, 6);
-    gtk_widget_set_margin_top (row, 3);
-    gtk_widget_set_margin_bottom (row, 3);
-
-    return FALSE;
-}
-
-GtkWidget *all_icon_names_list_new (const char *selected_icon, const char **choosen_icon)
-{
-    assert (choosen_icon != NULL);
-
-    GtkWidget *new_icon_list = gtk_list_box_new ();
-    gtk_widget_set_vexpand (new_icon_list, TRUE);
-    gtk_widget_set_hexpand (new_icon_list, TRUE);
-    gtk_list_box_set_filter_func (GTK_LIST_BOX(new_icon_list), search_filter, NULL, NULL);
-
-    struct all_theme_list_build_clsr_t clsr;
-    clsr.new_icon_list = new_icon_list;
-    clsr.first = true;
-    clsr.selected_icon = selected_icon;
-
-    g_tree_foreach (app.all_icon_names, all_theme_list_build, &clsr);
-
-    *choosen_icon = clsr.selected_icon;
-    g_signal_connect (G_OBJECT(new_icon_list), "row-selected", G_CALLBACK (on_icon_selected), NULL);
-
-    return new_icon_list;
-}
-
 GtkWidget *icon_list_new (const char *theme_name, const char *selected_icon, const char **choosen_icon)
 {
     assert (choosen_icon != NULL);
@@ -1035,7 +987,6 @@ GtkWidget *icon_list_new (const char *theme_name, const char *selected_icon, con
     icon_names = g_list_sort (icon_names, strcase_cmp_callback);
 
     bool first = true;
-    uint32_t i = 0;
     GList *l = NULL;
     for (l = icon_names; l != NULL; l = l->next)
     {
@@ -1057,7 +1008,6 @@ GtkWidget *icon_list_new (const char *theme_name, const char *selected_icon, con
         gtk_widget_set_margin_end (row, 6);
         gtk_widget_set_margin_top (row, 3);
         gtk_widget_set_margin_bottom (row, 3);
-        i++;
     }
     g_list_free (icon_names);
 
