@@ -323,7 +323,7 @@ bool file_lookup (char *dir, char *file)
     return res;
 }
 
-templ_sort_ll(icon_theme_sort, struct icon_theme_t, strcasecmp((*a)->name, (*b)->name) < 0)
+templ_sort_ll(icon_theme_sort, struct icon_theme_t, strcasecmp(a->name, b->name) < 0)
 
 void set_theme_name (struct icon_theme_t *theme)
 {
@@ -653,7 +653,7 @@ bool is_img_lt (struct icon_image_t *a, struct icon_image_t *b)
     }
 }
 
-templ_sort_ll(icon_image_sort, struct icon_image_t, is_img_lt(*a, *b))
+templ_sort_ll(icon_image_sort, struct icon_image_t, is_img_lt(a, b))
 
 // Some of the information in the icon view is derived from the base information
 // taken from the icon database (or faked for the folder theme or the unthemed
@@ -780,7 +780,7 @@ void icon_view_compute (mem_pool_t *pool,
                     // we get.
 
                     struct icon_image_t img = ZERO_INIT(struct icon_image_t);
-                    mem_pool_temp_marker_t mrkr = mem_pool_begin_temporary_memory (pool);
+                    mem_pool_marker_t mrkr = mem_pool_begin_temporary_memory (pool);
                     img.scale = 1;
                     img.min_size = -1;
                     img.max_size = -1;

@@ -17,9 +17,11 @@
 #include <math.h>
 #include <stdarg.h>
 #include <dirent.h>
+#include <locale.h>
 
 #ifdef __cplusplus
 #define ZERO_INIT(type) (type){}
+// TODO: Add the static assert and check it works in C++.
 #else
 #define ZERO_INIT(type) (type){0}
 typedef enum {false, true} bool;
@@ -51,6 +53,55 @@ typedef enum {false, true} bool;
 #define terabyte(val) (gigabyte(val)*1024LL)
 
 #define invalid_code_path assert(0)
+
+// These macros simplify the process of creating functions that receive format
+// string like print does
+#if __GNUC__ > 2
+#define GCC_PRINTF_FORMAT(fmt_idx, arg_idx) __attribute__((format (printf, fmt_idx, arg_idx)))
+#else
+#define GCC_PRINTF_FORMAT(fmt_idx, arg_idx)
+#endif
+
+// A printf like function works in 3 stages: 1) compute the size of the
+// resulting string, 2) allocate the char array for the string, 3) populate the
+// array with the resulting string. The following macros implement the 1st and
+// 3rd stages. The 2nd stage will be implemented by the user.
+//
+// This macro corresponds to the 1st stage. It takes as argument _format_ the
+// name of the variable with format string. It then creates 2 new variables
+// named _size_ and _args_. The first one contains the size of the resulting
+// string including the null byte the second one is used by the 3rd stage.
+#define PRINTF_INIT(format, size, args)                   \
+va_list args;                                             \
+size_t size;                                              \
+{                                                         \
+    va_list args_copy;                                    \
+    va_start (args, format);                              \
+    va_copy (args_copy, args);                            \
+                                                          \
+    size = vsnprintf (NULL, 0, format, args_copy) + 1;    \
+    va_end (args_copy);                                   \
+}
+
+// This is the 3rd stage of a printf like function. It takes the same arguments
+// as vsnprintf(). As a convenience the _args_ variable is the one created in
+// the 1st stage.
+#define PRINTF_SET(str, size, format, args)               \
+{                                                         \
+    vsnprintf (str, size, format, args);                  \
+    va_end (args);                                        \
+}
+
+// Console color escape sequences
+// TODO: Maybe add a way to detect if the output is a terminal so we don't do
+// anything in that case.
+#define ECMA_RED(str) "\033[1;31m\033[K"str"\033[m\033[K"
+#define ECMA_GREEN(str) "\033[1;32m\033[K"str"\033[m\033[K"
+#define ECMA_YELLOW(str) "\033[1;33m\033[K"str"\033[m\033[K"
+#define ECMA_BLUE(str) "\033[1;34m\033[K"str"\033[m\033[K"
+#define ECMA_MAGENTA(str) "\033[1;35m\033[K"str"\033[m\033[K"
+#define ECMA_CYAN(str) "\033[1;36m\033[K"str"\033[m\033[K"
+#define ECMA_WHITE(str) "\033[1;37m\033[K"str"\033[m\033[K"
 
 ////////////
 // STRINGS
@@ -337,6 +388,7 @@ void str_debug_print (string_t *str)
 
 #endif
 
+#define str_dup(str) strn_new(str_data(str), str_len(str))
 #define str_new(data) strn_new((data),((data)!=NULL?strlen(data):0))
 string_t strn_new (const char *c_str, size_t len)
 {
@@ -416,10 +468,80 @@ void strn_cat_c (string_t *dest, const char *src, size_t len)
     dest_data[total_len] = '\0';
 }
 
+void str_cat_indented (string_t *str1, string_t *str2, int num_spaces)
+{
+    if (str_len(str2) == 0) {
+        return;
+    }
+
+    char *c = str_data(str2);
+    for (int i=0; i<num_spaces; i++) {
+        strn_cat_c (str1, " ", 1);
+    }
+
+    while (c && *c) {
+        if (*c == '\n' && *(c+1) != '\n' && *(c+1) != '\0') {
+            strn_cat_c (str1, "\n", 1);
+            for (int i=0; i<num_spaces; i++) {
+                strn_cat_c (str1, " ", 1);
+            }
+
+        } else {
+            strn_cat_c (str1, c, 1);
+        }
+        c++;
+    }
+}
+
 char str_last (string_t *str)
 {
     return str_data(str)[str_len(str)-1];
 }
+
+GCC_PRINTF_FORMAT(3, 4)
+void str_put_printf (string_t *str, size_t pos, const char *format, ...)
+{
+    va_list args1, args2;
+    va_start (args1, format);
+    va_copy (args2, args1);
+
+    size_t size = vsnprintf (NULL, 0, format, args1) + 1;
+    va_end (args1);
+
+    char *tmp_str = malloc (size);
+    vsnprintf (tmp_str, size, format, args2);
+    va_end (args2);
+
+    strn_put_c (str, pos, tmp_str, size - 1);
+
+    free (tmp_str);
+}
+
+// These string functions use the printf syntax, this lets code be more concise.
+#define _define_str_printf_func(FUNC_NAME,STRN_FUNC_NAME)       \
+GCC_PRINTF_FORMAT(2, 3)                                         \
+void FUNC_NAME (string_t *str, const char *format, ...)         \
+{                                                               \
+    va_list args1, args2;                                       \
+    va_start (args1, format);                                   \
+    va_copy (args2, args1);                                     \
+                                                                \
+    size_t size = vsnprintf (NULL, 0, format, args1) + 1;       \
+    va_end (args1);                                             \
+                                                                \
+    char *tmp_str = malloc (size);                              \
+    vsnprintf (tmp_str, size, format, args2);                   \
+    va_end (args2);                                             \
+                                                                \
+    STRN_FUNC_NAME (str, tmp_str, size - 1);                    \
+                                                                \
+    free (tmp_str);                                             \
+}
+
+_define_str_printf_func(str_set_printf, strn_set)
+_define_str_printf_func(str_cat_printf, strn_cat_c)
+
+#undef _define_str_printf_func
 
 //////////////////////
 // PARSING UTILITIES
@@ -509,6 +631,27 @@ bool is_end_of_line (const char *c)
            c++;
     }
     return *c == '\n';
+}
+
+// Set POSIX locale while storing the previous one. Useful while calling strtod
+// and you know the decimal separator will always be '.', and you don't want it
+// to break if the user changes locale.
+// NOTE: Must be followed by a call to end_posix_locale() to avoid memory leaks
+char* begin_posix_locale ()
+{
+    char *old_locale = NULL;
+    old_locale = strdup (setlocale (LC_ALL, NULL));
+    assert (old_locale != NULL);
+    setlocale (LC_ALL, "POSIX");
+
+    return old_locale;
+}
+
+// Restore the previous locale returned by begin_posix_locale
+void end_posix_locale (char *old_locale)
+{
+    setlocale (LC_ALL, old_locale);
+    free (old_locale);
 }
 
 #define VECT_X 0
@@ -1297,45 +1440,127 @@ void swap_n_bytes (void *a, void*b, uint32_t n)
 // IS_A_LT_B is an expression where a and b are pointers
 // to _arr_ true when *a<*b.
 // NOTE: IS_A_LT_B as defined, will sort the array in ascending order.
-#define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                     \
-void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data) \
-{                                                               \
-    if (n<=1) {                                                 \
-        return;                                                 \
-    } else if (n == 2) {                                        \
-        TYPE *a = &arr[1];                                      \
-        TYPE *b = &arr[0];                                      \
-        int c = IS_A_LT_B;                                      \
-        if (c) {                                                \
-            swap_n_bytes (&arr[0], &arr[1], sizeof(TYPE));      \
-        }                                                       \
-    } else {                                                    \
-        TYPE res[n];                                            \
-        FUNCNAME ## _user_data (arr, n/2, user_data);           \
-        FUNCNAME ## _user_data (&arr[n/2], n-n/2, user_data);   \
-                                                                \
-        int i;                                                  \
-        int h=0;                                                \
-        int k=n/2;                                              \
-        for (i=0; i<n; i++) {                                   \
-            TYPE *a = &arr[h];                                  \
-            TYPE *b = &arr[k];                                  \
-            if (k==n || (h<n/2 && (IS_A_LT_B))) {               \
-                res[i] = arr[h];                                \
-                h++;                                            \
-            } else {                                            \
-                res[i] = arr[k];                                \
-                k++;                                            \
-            }                                                   \
-        }                                                       \
-        for (i=0; i<n; i++) {                                   \
-            arr[i] = res[i];                                    \
-        }                                                       \
-    }                                                           \
-}                                                               \
-                                                                \
-void FUNCNAME(TYPE *arr, int n) {                               \
-    FUNCNAME ## _user_data (arr,n,NULL);                        \
+#define templ_sort(FUNCNAME,TYPE,IS_A_LT_B)                                       \
+void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data)                   \
+{                                                                                 \
+    if (arr == NULL || n<=1) {                                                    \
+        return;                                                                   \
+    } else if (n == 2) {                                                          \
+        TYPE *a = &arr[1];                                                        \
+        TYPE *b = &arr[0];                                                        \
+        int c = IS_A_LT_B;                                                        \
+        if (c) {                                                                  \
+            swap_n_bytes (&arr[0], &arr[1], sizeof(TYPE));                        \
+        }                                                                         \
+    } else {                                                                      \
+        TYPE res[n];                                                              \
+        FUNCNAME ## _user_data (arr, n/2, user_data);                             \
+        FUNCNAME ## _user_data (&arr[n/2], n-n/2, user_data);                     \
+                                                                                  \
+        /* Merge halfs until one of them runs out*/                               \
+        int i;                                                                    \
+        int h=0;                                                                  \
+        int k=n/2;                                                                \
+        for (i=0; k<n && h<n/2; i++) {                                            \
+            TYPE *a = &arr[h];                                                    \
+            TYPE *b = &arr[k];                                                    \
+            int c = IS_A_LT_B;                                                    \
+            if (c) {                                                              \
+                res[i] = arr[h];                                                  \
+                h++;                                                              \
+            } else {                                                              \
+                res[i] = arr[k];                                                  \
+                k++;                                                              \
+            }                                                                     \
+        }                                                                         \
+                                                                                  \
+        /* If there are elements remaining in one half copy them. Separating
+         * loop this way avoids evaluating CMP_A_TO_B for invalid elements (past
+         * the maximum value for h).
+         */                                                                       \
+        int rest_idx = k==n ? h : k;                                              \
+        for (; i<n; i++) {                                                        \
+            res[i] = arr[rest_idx];                                               \
+            rest_idx++;                                                           \
+        }                                                                         \
+                                                                                  \
+        /* Copy the sorted array back from the temporary array. */                \
+        for (i=0; i<n; i++) {                                                     \
+            arr[i] = res[i];                                                      \
+        }                                                                         \
+    }                                                                             \
+}                                                                                 \
+                                                                                  \
+void FUNCNAME(TYPE *arr, int n) {                                                 \
+    FUNCNAME ## _user_data (arr,n,NULL);                                          \
+}
+
+// Stable templetized merge sort for arrays
+//
+// CMP_A_TO_B is an expression where a and b are pointers to _arr_, it's equal
+// to -1, 0 or 1 if *a and *b compare as less than, equal to or grater than
+// respectively.
+//
+// The reasoning behind this being separate from templ_sort() is that a stable
+// sort requires a 3-way comparison, which makes it a little more inconvinient
+// to instantiate. Writing a IS_A_LT_B expression is much more straightforward
+// than a CMP_A_TO_B expression.
+//
+// NOTE: CMP_A_TO_B as defined, will sort the array in ascending order.
+#define templ_sort_stable(FUNCNAME,TYPE,CMP_A_TO_B)                               \
+void FUNCNAME ## _user_data (TYPE *arr, int n, void *user_data)                   \
+{                                                                                 \
+    if (arr == NULL || n<=1) {                                                    \
+        return;                                                                   \
+    } else if (n == 2) {                                                          \
+        TYPE *a = &arr[1];                                                        \
+        TYPE *b = &arr[0];                                                        \
+        int c = CMP_A_TO_B;                                                       \
+        if (c == -1) {                                                            \
+            swap_n_bytes (&arr[0], &arr[1], sizeof(TYPE));                        \
+        }                                                                         \
+                                                                                  \
+    } else {                                                                      \
+        TYPE res[n];                                                              \
+        FUNCNAME ## _user_data (arr, n/2, user_data);                             \
+        FUNCNAME ## _user_data (&arr[n/2], n-n/2, user_data);                     \
+                                                                                  \
+        /* Merge halfs until one of them runs out*/                               \
+        int i;                                                                    \
+        int h=0;                                                                  \
+        int k=n/2;                                                                \
+        for (i=0; k<n && h<n/2; i++) {                                            \
+            TYPE *a = &arr[h];                                                    \
+            TYPE *b = &arr[k];                                                    \
+            int c = CMP_A_TO_B;                                                   \
+            if (c < 1) {                                                          \
+                res[i] = arr[h];                                                  \
+                h++;                                                              \
+            } else {                                                              \
+                res[i] = arr[k];                                                  \
+                k++;                                                              \
+            }                                                                     \
+        }                                                                         \
+                                                                                  \
+        /* If there are elements remaining in one half copy them. Separating
+         * loop this way avoids evaluating CMP_A_TO_B for invalid elements, past
+         * the end of the array.
+         */                                                                       \
+        int rest_idx = k==n ? h : k;                                              \
+        for (; i<n; i++) {                                                        \
+            res[i] = arr[rest_idx];                                               \
+            rest_idx++;                                                           \
+        }                                                                         \
+                                                                                  \
+        /* Copy the sorted array back from the temporary array. */                \
+        for (i=0; i<n; i++) {                                                     \
+            arr[i] = res[i];                                                      \
+        }                                                                         \
+    }                                                                             \
+}                                                                                 \
+                                                                                  \
+void FUNCNAME(TYPE *arr, int n) {                                                 \
+    FUNCNAME ## _user_data (arr,n,NULL);                                          \
 }
 
 typedef struct {
@@ -1371,25 +1596,27 @@ void array_clear (int *arr, int n)
 
 void array_print_full (int *arr, int n, const char *sep, const char *start, const char *end)
 {
-    int i;
+    int i=0;
     if (start != NULL) {
         printf ("%s", start);
     }
 
-    if (sep != NULL) {
-        for (i=0; i<n-1; i++) {
-            printf ("%d%s", arr[i], sep);
+    if (n>0) {
+        if (sep != NULL) {
+            for (i=0; i<n-1; i++) {
+                printf ("%d%s", arr[i], sep);
+            }
+        } else {
+            for (i=0; i<n-1; i++) {
+                printf ("%d", arr[i]);
+            }
         }
-    } else {
-        for (i=0; i<n-1; i++) {
-            printf ("%d", arr[i]);
-        }
+
+        printf ("%d", arr[i]);
     }
 
     if (end != NULL) {
-        printf ("%d%s", arr[i], end);
-    } else {
-        printf ("%d", arr[i]);
+        printf ("%s", end);
     }
 }
 
@@ -1453,18 +1680,38 @@ void print_u64_array (uint64_t *arr, int n)
 // Templetized linked list sort
 //
 // IS_A_LT_B is an expression where a and b are pointers of type TYPE and should
-// evaluate to true when *a<*b. NEXT_FIELD specifies the name of the field where
-// the next node pointer is found. The macro templ_sort_ll is convenience for
-// when this field's name is "next". Use n=-1 if the size is unknown, in this
-// case the full linked list will be iterated to compute it.
+// evaluate to true when a->val < b->val. NEXT_FIELD specifies the name of the
+// field where the next node pointer is found. The macro templ_sort_ll is
+// convenience for when this field's name is "next". Use n=-1 if the size is
+// unknown, in this case the full linked list will be iterated to compute it.
 // NOTE: IS_A_LT_B as defined, will sort the linked list in ascending order.
 // NOTE: The last node of the linked list is expected to have NEXT_FIELD field
 // set to NULL.
 // NOTE: It uses a pointer array of size n, and calls merge sort on that array.
-#define templ_sort_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,IS_A_LT_B)\
-templ_sort(FUNCNAME ## _arr, TYPE*, IS_A_LT_B)                      \
+
+// We say a and b are pointers, for arrays it's well defined. When talking about
+// linked lists we could mean a pointer to a node, or a pointer to an element of
+// the pointer array generated internally (a double pointer to a node). I've
+// seen the first one to be the expected way, but passing IS_A_LT_B as is, will
+// have the second semantics. This macro injects some code that dereferences a
+// and b so that we can do a->val < b->val easily.
+#define _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE) \
+    0;                                                        \
+    TYPE* _a = *a;                                            \
+    TYPE* _b = *b;                                            \
+    {                                                         \
+        TYPE *a = _a;                                         \
+        TYPE *b = _b;                                         \
+        c = IS_A_LT_B;                                        \
+    }
+
+#define _linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)  \
 void FUNCNAME ## _user_data (TYPE **head, int n, void *user_data)   \
 {                                                                   \
+    if (head == NULL || n == 0) {                                   \
+        return;                                                     \
+    }                                                               \
+                                                                    \
     if (n == -1) {                                                  \
         n = 0;                                                      \
         TYPE *node = *head;                                         \
@@ -1497,8 +1744,23 @@ void FUNCNAME(TYPE **head, int n) {                                 \
     FUNCNAME ## _user_data (head,n,NULL);                           \
 }
 
+// Linked list sorting
+#define templ_sort_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,IS_A_LT_B)\
+templ_sort(FUNCNAME ## _arr, TYPE*,                                 \
+           _linked_list_A_B_dereference_injector(IS_A_LT_B,TYPE))   \
+_linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
+
 #define templ_sort_ll(FUNCNAME,TYPE,IS_A_LT_B) \
     templ_sort_ll_next_field(FUNCNAME,TYPE,next,IS_A_LT_B)
+
+// Stable linked list sorting
+#define templ_sort_stable_ll_next_field(FUNCNAME,TYPE,NEXT_FIELD,CMP_A_TO_B)\
+templ_sort_stable(FUNCNAME ## _arr, TYPE*,                                  \
+           _linked_list_A_B_dereference_injector(CMP_A_TO_B,TYPE))          \
+_linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
+
+#define templ_sort_stable_ll(FUNCNAME,TYPE,CMP_A_TO_B) \
+    templ_sort_stable_ll_next_field(FUNCNAME,TYPE,next,CMP_A_TO_B)
 
 void print_line (const char *sep, int len)
 {
@@ -1748,41 +2010,113 @@ void cont_buff_destroy (cont_buff_t *buff)
 }
 
 // Memory pool that grows as needed, and can be freed easily.
-#define MEM_POOL_MIN_BIN_SIZE 1024u
+#define MEM_POOL_DEFAULT_MIN_BIN_SIZE 1024u
 typedef struct {
     uint32_t min_bin_size;
     uint32_t size;
     uint32_t used;
     void *base;
 
-    uint32_t total_used;
+    // total_data is the total used memory minus the memory used for
+    // on_destroy_callback_info_t structs. We use this variable to compute the
+    // ammount of empty space left in previous bins.
+    uint32_t total_data;
     uint32_t num_bins;
 } mem_pool_t;
+
+// Sometimes we want to execute code when something we allocated in a pool gets
+// destroyed, that's what this callback is for. The alloceted argument will
+// point to the allocated memory when the callback was assigned.
+//
+// NOTE: When destroying a pool (or part of it when using temporary memory), ALL
+// destruction callbacks will be called BEFORE we free any memory from the pool.
+// The reasoning behind this is that maybe these callback functions would like
+// to use data inside things being destroyed. At the moment it seems like the
+// most sensible thing to do, but there may be cases where it isn't, maybe it
+// could increase cache misses? I don't know.
+//
+// NOTE: I reluctantly added closures to ON_DESTROY_CALLBACK. For
+// str_set_pooled() we need a way to pass the string to be freed. Heavy use of
+// closures here is a slippery slope. Expecting to be able to run any code from
+// here will be problematic and closures may gieve the wrong impression that
+// code here is always safe. It's easy to use freed memory from here. Whenever
+// you use these callbacks think carefully! this mechanism should be rareley be
+// used.
+#define ON_DESTROY_CALLBACK(name) void name(void *allocated, void *clsr)
+typedef ON_DESTROY_CALLBACK(mem_pool_on_destroy_callback_t);
+
+// TODO: As of now I've required the allocated pointer and the clsr pointer, but
+// I've never required them both at the same time. Maybe 2 pointers here is too
+// much overhead for allocating callbacks?, only time will tell... If it turns
+// out it's too much then we will need to think better about it. It's a tradeoff
+// between flexibility of the API and space overhead in the pool. For now, we
+// choose more flexibility at the cost of space overhead in the pool.
+struct on_destroy_callback_info_t {
+    mem_pool_on_destroy_callback_t *cb;
+    void *allocated;
+    void *clsr;
+
+    struct on_destroy_callback_info_t *prev;
+};
 
 struct _bin_info_t {
     void *base;
     uint32_t size;
     struct _bin_info_t *prev_bin_info;
+
+    struct on_destroy_callback_info_t *last_cb_info;
 };
 
 typedef struct _bin_info_t bin_info_t;
 
+// TODO: I hardly ever use these, instead I use ZERO_INIT, remove them?
 enum alloc_opts {
     POOL_UNINITIALIZED,
     POOL_ZERO_INIT
 };
 
-#define mem_pool_push_struct(pool, type) mem_pool_push_size(pool, sizeof(type))
-#define mem_pool_push_array(pool, n, type) mem_pool_push_size(pool, (n)*sizeof(type))
-#define mem_pool_push_size(pool, size) mem_pool_push_size_full(pool, size, POOL_UNINITIALIZED)
-void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts opts)
+// TODO: We should make this API more "generic" in the sense that any of the
+// push modes (size,struct,array) should be able to receive either the options
+// enum or a callback, with or without closure. Maybe create macros for all
+// these configuration combinations that evaluate to a 'config' struct, then
+// make a *_full version of these that receives this struct as the last
+// parameter.
+//
+// The reasoning behind this is that we don't want users to be bothered with
+// filling all 3 arguments for the current _full version, when they may only
+// want one of those. Right now I've seen myself prefering a mem_pool_push_* call
+// followed by a ZERO_INIT just because using the options will force me to write
+// explicitly the allocation using the 'push_size' variation, and remember de
+// order of the last arguments in the _full version of it. Making all options a
+// single argument at the end simplifies memorizing the API a LOT.
+//
+// This is something that would be much much nicer if C had default values for
+// function arguments.
+#define mem_pool_push_cb(pool,cb,clsr) mem_pool_push_size_full(pool,0,POOL_UNINITIALIZED,cb,clsr)
+
+#define mem_pool_push_size_cb(pool,size,cb) mem_pool_push_size_full(pool,size,POOL_UNINITIALIZED,cb,NULL)
+#define mem_pool_push_size(pool,size) mem_pool_push_size_full(pool,size,POOL_UNINITIALIZED,NULL,NULL)
+#define mem_pool_push_struct(pool,type) ((type*)mem_pool_push_size(pool,sizeof(type)))
+#define mem_pool_push_array(pool,n,type) mem_pool_push_size(pool,(n)*sizeof(type))
+void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts opts,
+                               mem_pool_on_destroy_callback_t *cb, void *clsr)
 {
     assert (pool != NULL);
-    if (size == 0) return NULL;
 
-    if (pool->used + size >= pool->size) {
+    uint32_t required_size = cb == NULL ? size : size + sizeof(struct on_destroy_callback_info_t);
+
+    if (required_size == 0) return NULL;
+
+    // If not enough space left in the current bin, grow the pool by adding a
+    // new one.
+    if (pool->used + required_size > pool->size) {
         pool->num_bins++;
-        int new_bin_size = MAX (MAX (MEM_POOL_MIN_BIN_SIZE, pool->min_bin_size), size);
+
+        if (pool->min_bin_size == 0) {
+            pool->min_bin_size = MEM_POOL_DEFAULT_MIN_BIN_SIZE;
+        }
+
+        int new_bin_size = MAX(pool->min_bin_size, required_size);
         void *new_bin;
         bin_info_t *new_info;
         if ((new_bin = malloc (new_bin_size + sizeof(bin_info_t)))) {
@@ -1794,6 +2128,7 @@ void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts 
 
         new_info->base = new_bin;
         new_info->size = new_bin_size;
+        new_info->last_cb_info = NULL;
 
         if (pool->base == NULL) {
             new_info->prev_bin_info = NULL;
@@ -1808,8 +2143,20 @@ void* mem_pool_push_size_full (mem_pool_t *pool, uint32_t size, enum alloc_opts 
     }
 
     void *ret = (uint8_t*)pool->base + pool->used;
-    pool->used += size;
-    pool->total_used += size;
+    if (cb != NULL) {
+        struct on_destroy_callback_info_t *cb_info =
+            (struct on_destroy_callback_info_t*)(pool->base + pool->used + size);
+        cb_info->allocated = size > 0 ? ret : NULL;
+        cb_info->clsr = clsr;
+        cb_info->cb = cb;
+
+        bin_info_t *bin_info = pool->base + pool->size;
+        cb_info->prev = bin_info->last_cb_info;
+        bin_info->last_cb_info = cb_info;
+    }
+
+    pool->used += required_size;
+    pool->total_data += size;
 
     if (opts == POOL_ZERO_INIT) {
         memset (ret, 0, size);
@@ -1825,6 +2172,19 @@ void mem_pool_destroy (mem_pool_t *pool)
     if (pool->base != NULL) {
         bin_info_t *curr_info = (bin_info_t*)((uint8_t*)pool->base + pool->size);
 
+        // Call all on_destroy callbacks
+        while (curr_info != NULL) {
+            struct on_destroy_callback_info_t *cb_info = curr_info->last_cb_info;
+            while (cb_info != NULL) {
+                cb_info->cb(cb_info->allocated, cb_info->clsr);
+                cb_info = cb_info->prev;
+            }
+
+            curr_info = curr_info->prev_bin_info;
+        }
+
+        // Free all allocated bins
+        curr_info = (bin_info_t*)((uint8_t*)pool->base + pool->size);
         void *to_free = curr_info->base;
         curr_info = curr_info->prev_bin_info;
         while (curr_info != NULL) {
@@ -1849,21 +2209,53 @@ uint32_t mem_pool_allocated (mem_pool_t *pool)
     return allocated;
 }
 
+// Computes how much memory of the pool is used to store
+// on_destroy_callback_info_t structutres.
+uint32_t mem_pool_callback_info (mem_pool_t *pool)
+{
+    uint64_t callback_info_size = 0;
+    if (pool->base != NULL) {
+        bin_info_t *curr_info = (bin_info_t*)((uint8_t*)pool->base + pool->size);
+        while (curr_info != NULL) {
+            struct on_destroy_callback_info_t *callback_info =
+                curr_info->last_cb_info;
+            while (callback_info != NULL) {
+                callback_info_size += sizeof(struct on_destroy_callback_info_t);
+                callback_info = callback_info->prev;
+            }
+            curr_info = curr_info->prev_bin_info;
+        }
+    }
+    return callback_info_size;
+}
+
+// NOTE: This isn't supposed to be called often, we traverse all bins at least
+// twice. Once in the call to mem_pool_allocated() and again in the call to
+// mem_pool_callback_info().
 void mem_pool_print (mem_pool_t *pool)
 {
     uint32_t allocated = mem_pool_allocated(pool);
     printf ("Allocated: %u bytes\n", allocated);
-    printf ("Available: %u bytes\n", pool->size-pool->used);
-    printf ("Used: %u bytes (%.2f%%)\n", pool->total_used, ((double)pool->total_used*100)/allocated);
+
+    uint32_t available = pool->size-pool->used;
+    printf ("Available: %u bytes (%.2f%%)\n", available, ((double)available*100)/allocated);
+
+    printf ("Data: %u bytes (%.2f%%)\n", pool->total_data, ((double)pool->total_data*100)/allocated);
+
+    uint32_t callback_info_size = mem_pool_callback_info (pool);
+    printf ("Callback Info: %u bytes (%.2f%%)\n", callback_info_size, ((double)callback_info_size*100)/allocated);
+
     uint64_t info_size = pool->num_bins*sizeof(bin_info_t);
     printf ("Info: %lu bytes (%.2f%%)\n", info_size, ((double)info_size*100)/allocated);
 
-    // NOTE: This is the amount of space left empty in previous bins
+    // NOTE: This is the amount of space left empty in previous bins. It's
+    // different from 'available' space in that 'left_empty' space is
+    // effectively wasted and won't be used in future allocations.
     uint64_t left_empty;
     if (pool->num_bins>0)
-        left_empty = (allocated - pool->size - sizeof(bin_info_t))- /*allocated except last bin*/
-                     (pool->total_used - pool->used)-               /*total_used except last bin*/
-                     (pool->num_bins-1)*sizeof(bin_info_t);         /*size used in bin_info_t*/
+        left_empty = (allocated - pool->size - sizeof(bin_info_t))          /*allocated except last bin*/
+                     - (pool->total_data + callback_info_size - pool->used) /*total_data except last bin*/
+                     - (pool->num_bins-1)*sizeof(bin_info_t);               /*size used in bin_info_t*/
     else {
         left_empty = 0;
     }
@@ -1875,23 +2267,50 @@ typedef struct {
     mem_pool_t *pool;
     void* base;
     uint32_t used;
-    uint32_t total_used;
-} mem_pool_temp_marker_t;
+    uint32_t total_data;
+} mem_pool_marker_t;
 
-mem_pool_temp_marker_t mem_pool_begin_temporary_memory (mem_pool_t *pool)
+mem_pool_marker_t mem_pool_begin_temporary_memory (mem_pool_t *pool)
 {
-    mem_pool_temp_marker_t res;
-    res.total_used = pool->total_used;
+    mem_pool_marker_t res;
+    res.total_data = pool->total_data;
     res.used = pool->used;
     res.base = pool->base;
     res.pool = pool;
     return res;
 }
 
-void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
+void mem_pool_end_temporary_memory (mem_pool_marker_t mrkr)
 {
     if (mrkr.base != NULL) {
+        // Call all on_destroy callbacks for bins that will be freed, starting
+        // from the last bin.
         bin_info_t *curr_info = (bin_info_t*)((uint8_t*)mrkr.pool->base + mrkr.pool->size);
+        while (curr_info->base != mrkr.base) {
+            struct on_destroy_callback_info_t *cb_info = curr_info->last_cb_info;
+            while (cb_info != NULL) {
+                cb_info->cb(cb_info->allocated, cb_info->clsr);
+                cb_info = cb_info->prev;
+            }
+
+            curr_info = curr_info->prev_bin_info;
+        }
+
+        // Call affected on_destroy callbacks in the new last bin (the one that
+        // will stay allocated but may be partially freed).
+        struct on_destroy_callback_info_t *cb_info = curr_info->last_cb_info;
+        while (cb_info != NULL && (void*)cb_info >= mrkr.base + mrkr.used) {
+            cb_info->cb(cb_info->allocated, cb_info->clsr);
+            cb_info = cb_info->prev;
+        }
+
+        // Update last_cb_info in the bin_info of the last bin. This bin will
+        // not be freed, future allocations will overwrite the end of it if
+        // there's enough space.
+        curr_info->last_cb_info = cb_info;
+
+        // Free necessary bins
+        curr_info = (bin_info_t*)((uint8_t*)mrkr.pool->base + mrkr.pool->size);
         while (curr_info->base != mrkr.base) {
             void *to_free = curr_info->base;
             curr_info = curr_info->prev_bin_info;
@@ -1901,7 +2320,8 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
         mrkr.pool->size = curr_info->size;
         mrkr.pool->base = mrkr.base;
         mrkr.pool->used = mrkr.used;
-        mrkr.pool->total_used = mrkr.total_used;
+        mrkr.pool->total_data = mrkr.total_data;
+
     } else {
         // NOTE: Here mrkr was created before the pool was initialized, so we
         // destroy everything.
@@ -1911,7 +2331,7 @@ void mem_pool_end_temporary_memory (mem_pool_temp_marker_t mrkr)
         mrkr.pool->size = 0;
         mrkr.pool->base = NULL;
         mrkr.pool->used = 0;
-        mrkr.pool->total_used = 0;
+        mrkr.pool->total_data = 0;
     }
 }
 
@@ -1938,12 +2358,6 @@ void* pom_dup (mem_pool_t *pool, void *data, uint32_t size)
     return res;
 }
 
-#if __GNUC__ > 2
-#define GCC_PRINTF_FORMAT(fmt_idx, arg_idx) __attribute__((format (printf, fmt_idx, arg_idx)))
-#else
-#define GCC_PRINTF_FORMAT(fmt_idx, arg_idx)
-#endif
-
 GCC_PRINTF_FORMAT(2, 3)
 char* pprintf (mem_pool_t *pool, const char *format, ...)
 {
@@ -1954,12 +2368,46 @@ char* pprintf (mem_pool_t *pool, const char *format, ...)
     size_t size = vsnprintf (NULL, 0, format, args1) + 1;
     va_end (args1);
 
-    char *str = mem_pool_push_size (pool, size);
+    char *str = pom_push_size (pool, size);
 
     vsnprintf (str, size, format, args2);
     va_end (args2);
 
     return str;
+}
+
+// These functions implement pooled string_t structures. This means strings
+// created using strn_new_pooled() will be automatically freed when the passed
+// pool gets destroyed.
+ON_DESTROY_CALLBACK (destroy_pooled_str)
+{
+    string_t *str;
+    if (clsr != NULL) {
+        assert (allocated == NULL);
+        str = (string_t*)clsr;
+    } else {
+        str = (string_t*)allocated;
+    }
+
+    //printf ("Deleted pooled string: '%s'\n", str_data(str));
+    str_free (str);
+}
+#define str_new_pooled(pool,c_str) strn_new_pooled((pool),(c_str),((c_str)!=NULL?strlen(c_str):0))
+string_t* strn_new_pooled (mem_pool_t *pool, const char *c_str, size_t len)
+{
+    assert (pool != NULL && c_str != NULL);
+    string_t *str = mem_pool_push_size_cb (pool, sizeof(string_t), destroy_pooled_str);
+    *str = strn_new (c_str, len);
+    return str;
+}
+
+#define str_set_pooled(pool,str,c_str) strn_set_pooled((pool),(str),(c_str),((c_str)!=NULL?strlen(c_str):0))
+void strn_set_pooled (mem_pool_t *pool, string_t *str, const char *c_str, size_t len)
+{
+    assert (pool != NULL && str != NULL);
+    str_set (str, "");
+    mem_pool_push_cb (pool, destroy_pooled_str, str);
+    strn_set (str, c_str, len);
 }
 
 // Flatten an array of null terminated strings into a single string allocated
@@ -2020,6 +2468,25 @@ char* sh_expand (const char *str, mem_pool_t *pool)
     return res;
 }
 
+char* abs_path (const char *path, mem_pool_t *pool)
+{
+    mem_pool_t l_pool = {0};
+
+    char *expanded_path = sh_expand (path, &l_pool);
+
+    char *absolute_path_m = realpath (expanded_path, NULL);
+    if (absolute_path_m == NULL) {
+        // NOTE: realpath() fails if the file does not exist.
+        printf ("Error: %s (%d)\n", strerror(errno), errno);
+    }
+    char *absolute_path = pom_strdup (pool, absolute_path_m);
+    free (absolute_path_m);
+
+    mem_pool_destroy (&l_pool);
+
+    return absolute_path;
+}
+
 void file_write (int file, void *pos,  ssize_t size)
 {
     if (write (file, pos, size) < size) {
@@ -2078,7 +2545,7 @@ char* full_file_read (mem_pool_t *pool, const char *path)
     bool success = true;
     char *dir_path = sh_expand (path, NULL);
 
-    mem_pool_temp_marker_t mrk;
+    mem_pool_marker_t mrk;
     if (pool != NULL) {
         mrk = mem_pool_begin_temporary_memory (pool);
     }
@@ -2150,7 +2617,7 @@ char* full_file_read_prefix (mem_pool_t *out_pool, const char *path, char **pref
     str_free (&pfx_s);
     str_free (&path_s);
 
-    mem_pool_temp_marker_t mrk;
+    mem_pool_marker_t mrk;
     if (out_pool != NULL) {
         mrk = mem_pool_begin_temporary_memory (out_pool);
     }
