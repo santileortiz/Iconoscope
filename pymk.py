@@ -21,19 +21,19 @@ modes = {
         'profile_debug': '-O3 -g -pg -Wall',
         'release': '-O3 -DNDEBUG -DRELEASE_BUILD -Wall'
         }
-cli_mode = get_cli_option('-M,--mode', modes.keys())
-FLAGS = modes[pers('mode', 'debug', cli_mode)]
+mode = store('mode', get_cli_arg_opt('-M,--mode', modes.keys()), 'debug')
+C_FLAGS = modes[mode]
 ensure_dir ("bin")
 
 def default():
-    target = pers ('last_target', 'iconoscope')
+    target = store_get ('last_snip', 'iconoscope')
     call_user_function(target)
 
 def iconoscope ():
-    ex ('gcc {FLAGS} -o bin/iconoscope iconoscope.c {GTK_FLAGS} -lm')
+    ex ('gcc {C_FLAGS} -o bin/iconoscope iconoscope.c {GTK_FLAGS} -lm')
 
 def install ():
-    dest_dir = get_cli_option ('--destdir', has_argument=True)
+    dest_dir = get_cli_arg_opt ('--destdir')
     installed_files = install_files (installation_info, dest_dir)
 
     if dest_dir == None or dest_dir == '/':
