@@ -1,4 +1,4 @@
-import sys, subprocess, os, ast, shutil, platform, json, pickle
+import sys, subprocess, os, ast, shutil, platform, re, json, pickle
 
 import importlib.util, inspect, pathlib, filecmp
 
@@ -412,7 +412,7 @@ def ex (cmd, no_stdout=False, ret_stdout=False, echo=True):
 # TODO: Rename this because it has the same name as one of the default logging
 # functions in python.
 def info (s):
-    # The following code can be used to se available colors
+    # The following code can be used to see available colors
     #for i in range (8):
     #    print ("\033[0;3" + str(i) + "m\033[K" + "HELLO" + "\033[m\033[K", end=' ')
     #    print ("\033[0;9" + str(i) + "m\033[K" + "HELLO" + "\033[m\033[K", end=' ')
@@ -430,6 +430,39 @@ def warn (s):
     color = '\033[1;33m\033[K'
     default_color = '\033[m\033[K'
     print (color+s+default_color)
+
+def ecma_red(s):
+ return f"\033[1;31m\033[K{s}\033[m\033[K"
+
+def ecma_green(s):
+ return f"\033[1;32m\033[K{s}\033[m\033[K"
+
+def ecma_yellow(s):
+ return f"\033[1;33m\033[K{s}\033[m\033[K"
+
+def ecma_blue(s):
+ return f"\033[1;34m\033[K{s}\033[m\033[K"
+
+def ecma_magenta(s):
+ return f"\033[1;35m\033[K{s}\033[m\033[K"
+
+def ecma_cyan(s):
+ return f"\033[1;36m\033[K{s}\033[m\033[K"
+
+def ecma_white(s):
+ return f"\033[1;37m\033[K{s}\033[m\033[K"
+
+def ecma_bold(s):
+ return f"\033[1m\033[K{s}\033[m\033[K"
+
+def ecma_code(s, code):
+ """Code is an integer between 16 and 232"""
+ return f"\033[1;38;5;{code}m\033[K{s}\033[m\033[K"
+
+def ecma_code_f(code):
+    def ecma_f(s):
+        return ecma_code(s, code)
+    return ecma_f
 
 def pickle_load(fname):
     with open (fname, 'rb') as f:
@@ -521,7 +554,20 @@ def store_get (name, default=None):
 
     # TODO: Eventually remove this warning?
     if name == 'last_target':
-        warn('Last called snip cache variable was renamed. Please change \'last_target\' to \'last_snip\'')
+        warn('Las called snip cache variable was renamed. Please change \'last_target\' to \'last_snip\'')
+
+    cache_dict = get_cache_dict ()
+
+    if name not in cache_dict.keys ():
+        if default != None:
+            cache_dict[name] = default
+        else:
+            # TODO: store_get(<name>) won't silently return None, it will print
+            # this warning. If users want to set None as default return value,
+            # store_get(<name>, default=None) has to be used. I like it because
+            # it shows intent explicitly, but I'm not sure if it's intuitive
+            # enough.
+            print ('Key \''+name+'\' is not in pymk/cache.')
 
     # Even though we could avoid creating this function and require the user to
     # call store() with value==None, I found this is counter intuitive and hard
@@ -529,8 +575,9 @@ def store_get (name, default=None):
     # so the argument order is not straightforward, when using it to store the
     # 'natural' order is (name, value, default), but when using it to get a
     # value the common order would be (name, default, value) as value isn't
-    # really useful here and needs to be set to None.
-    return store (name, None, default)
+    # really useful here and needs to be set to None. Also, it rewrites the
+    # cache file on reads, which is unexpected.
+    return cache_dict.get (name)
 
 def store_init (name, value):
     """
@@ -585,13 +632,13 @@ def store_init (name, value):
 def pers_func_f (name, func, args, kwargs={}):
     """
     This function calls _func_(*args, **kwargs), stores whatever it returns in
-    mkpy/cache with _name_ as key. If this function is called agaín, and _args_
+    mkpy/cache with _name_ as key. If this function is called again, and _args_
     and _kwargs_ don't change, the previous result is returned without calling
     _func_ agaín.
 
-    We assume the return value of _func_ only depends on its arguments. If it
-    depends on external state, there is no way we can detect _func_ needs to be
-    called again.
+    We assume the return value of _func_ only depends on its arguments (it's
+    purely functional). If it depends on external state, there is no way we can
+    detect _func_ needs to be called again.
     """
     # I don't think there is a valud usecase where we would receive no
     # arguments. If there are no arguments then the return value of the
@@ -648,8 +695,8 @@ def pers_func (name, func, arg):
     #
     #     pers_func(name, func, [arg]) vs pers_func(name, func, arg)
     #
-    # What I'm worried is that people would find it counter intuitive to have
-    # to wrap arg into a list.
+    # What I'm worried is that users will find it counter intuitive to have to
+    # wrap arg into a list.
     return pers_func_f (name, func, [arg])
 
 def path_isdir (path_s):
@@ -1090,14 +1137,17 @@ def pymk_default (skip_snip_cache=[]):
 
     else:
         call_user_function (t)
-        if t != 'default' and t != 'install' and t not in skip_snip_cache:
+        old_t = store_get ('last_snip', default=None)
+        if t != 'default' and t != 'install' and t != old_t and t not in skip_snip_cache:
             store ('last_snip', value=t)
 
 ##########################
 # Custom status logger API
 #
-# This is a simpler logging API than the default logger that allows to easily
-# get the result of a single call.
+# This is a simpler logging API than Python's default logger. It allows to
+# easily process its content after it's been populated. Processing is done with
+# normal code that reads the event array, without requiring knowledge of
+# concepts like filters, handlers, formatters etc.
 _level_enum = {
     'ERROR': 1,
     'WARNING': 2,
@@ -1126,6 +1176,12 @@ class Status():
         events_str_arr = [f'{_level_to_name[e.level]}: {e.message}' for e in self.events if e.level <= self.level]
         return '\n'.join(events_str_arr)
 
+    def print(self):
+        """
+        Utility method that avoids printing an empty line if the event array is empty.
+        """
+        print(self, end='')
+
 def log_clsr(level_value):
     def log_generic(status, message, echo=False):
         if echo:
@@ -1137,4 +1193,84 @@ def log_clsr(level_value):
 
 for level_name, level_value in _level_enum.items():
     _g[f'log_{level_name.lower()}'] = log_clsr(level_value)
+
+
+##############
+# Regex tester
+#
+def get_color_by_idx(idx):
+    if idx == 0:
+        return ecma_green
+    elif idx == 1:
+        return ecma_cyan
+    elif idx == 2:
+        return ecma_yellow
+    elif idx == 3:
+        return ecma_magenta
+    elif idx == 4:
+        return ecma_blue
+    elif idx == 5:
+        return ecma_code_f(52)
+    elif idx == 6:
+        return ecma_code_f(183)
+
+def regex_match_print (string, match_object):
+    res = string
+    if match_object != None:
+        markers = {}
+        for i in range(len(match_object.groups())+1):
+            start, end = match_object.span(i)
+            if start != -1:
+                if start != end:
+                    marker = markers.get(start)
+                    if marker == None:
+                        markers[start] = []
+                    markers[start].append (('<', get_color_by_idx(i)))
+
+                    marker = markers.get(end)
+                    if marker == None:
+                        markers[end] = []
+                    markers[end].insert (0, ('>', get_color_by_idx(i)))
+
+                else:
+                    marker = markers.get(end)
+                    if marker == None:
+                        markers[end] = []
+                    markers[end].insert (0, ('<', get_color_by_idx(i)))
+                    markers[end].append (('>', get_color_by_idx(i)))
+
+
+        last_pos = 0
+        sorted_markers = [(key, markers[key]) for key in sorted(markers.keys())]
+        for pos, markers_at_pos in sorted_markers:
+            print (string[last_pos:pos], end='')
+            for marker in markers_at_pos:
+                print (marker[1](marker[0]), end='')
+            last_pos = pos
+        print (string[last_pos:])
+
+    else:
+        print (string)
+
+def regex_test(regex, test_str, should_match):
+    result = re.search(regex, test_str)
+
+    if (should_match and result != None) or (not should_match and result == None):
+        if result != None:
+            print (ecma_green('OK MATCH'), end=' ')
+        else:
+            print (ecma_green('OK NO MATCH'), end=' ')
+
+        regex_match_print (test_str, result)
+
+    else:
+        if result != None:
+            print (ecma_red('FAIL MATCH'), end=' ')
+            regex_match_print (test_str, result)
+            print (result)
+            print()
+
+        else:
+            print (ecma_red('FAIL NO MATCH'), end=' ')
+            regex_match_print (test_str, result)
 

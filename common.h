@@ -2000,7 +2000,7 @@ typedef struct {
 // NOTE: I reluctantly added closures to ON_DESTROY_CALLBACK. For
 // str_set_pooled() we need a way to pass the string to be freed. Heavy use of
 // closures here is a slippery slope. Expecting to be able to run any code from
-// here will be problematic and closures may gieve the wrong impression that
+// here will be problematic and closures may give the wrong impression that
 // code here is always safe. It's easy to use freed memory from here. Whenever
 // you use these callbacks think carefully! this mechanism should be rareley be
 // used.
@@ -3220,7 +3220,7 @@ head;                                                        \
 // This requires _end pointer.
 // TODO: I'm not sure this is the right way of making the _end pointer
 // requirement optional. It's very easy to forget to use the right POP macro
-// version wnd mess up everything. I wish there was a way to conditionally add
+// version and mess up everything. I wish there was a way to conditionally add
 // or remove code if a symbols exists or not in the context.
 #define LINKED_LIST_POP_END(head)                            \
 head;                                                        \
@@ -3268,7 +3268,9 @@ type *new_node;                                              \
     LINKED_LIST_PUSH(head_name,new_node)                     \
 }
 
-// TODO: Implement LINKED_LIST_FOR()
+#define LINKED_LIST_FOR(type, varname,headname)              \
+type *varname = headname;                                    \
+for (; varname != NULL; varname = varname->next)
 
 // Linked list sorting
 //
@@ -3365,15 +3367,32 @@ _linked_list_sort_implementation(FUNCNAME,TYPE,NEXT_FIELD)
 //
 ON_DESTROY_CALLBACK (pooled_free_call)
 {
-    free (clsr);
+    free (*(void**)clsr);
 }
 
-#define DYNAMIC_ARRAY_INIT(pool, head_name)             \
-    mem_pool_push_cb(pool, pooled_free_call, head_name)
+#define DYNAMIC_ARRAY_DEFINE(type, name)             \
+    type *name;                                      \
+    int name ## _len;                                \
+    int name ## _size
 
-// TODO: Should we get this as an argument of each macro that can initialize the
-// array?.
+#define DYNAMIC_ARRAY_REALLOC(head_name,new_size)           \
+    if (new_size != 0) {                                    \
+        void *new_head =                                    \
+            realloc(head_name, new_size*sizeof(*head_name));\
+        if (new_head) {                                     \
+            head_name = new_head;                           \
+            head_name ## _size = new_size;                  \
+        }                                                   \
+    }
+
 #define DYNAMIC_ARRAY_INITIAL_SIZE 50
+
+#define DYNAMIC_ARRAY_INIT(pool,head_name,initial_size)                                 \
+{                                                                                       \
+    mem_pool_push_cb(pool, pooled_free_call, &head_name);                               \
+    head_name ## _size = initial_size == 0 ? DYNAMIC_ARRAY_INITIAL_SIZE : initial_size; \
+    DYNAMIC_ARRAY_REALLOC (head_name, head_name ## _size);                              \
+}
 
 #define DYNAMIC_ARRAY_APPEND(head_name,element)                             \
 {                                                                           \
@@ -3384,17 +3403,33 @@ ON_DESTROY_CALLBACK (pooled_free_call)
         new_size = 2*(head_name ## _size);                                  \
     }                                                                       \
                                                                             \
-    if (new_size != 0) {                                                    \
-        void *new_head =                                                    \
-            realloc(head_name, new_size*sizeof(head_name));                 \
-        if (new_head) {                                                     \
-            head_name = new_head;                                           \
-            head_name ## _size = new_size;                                  \
-        }                                                                   \
-    }                                                                       \
+    DYNAMIC_ARRAY_REALLOC(head_name, new_size)                              \
                                                                             \
     (head_name)[(head_name ## _len)++] = element;                           \
 }
+
+// In some cases we can't assign to a type by assigning to it, for example in
+// the case we are storing string_t structures, if we assign an empty string the
+// allocated internal memory pointer will be leaked. In such cases we just want
+// to get a pointer to the appended value and then the caller will handle what
+// to do next.
+//
+// CAUTION: Do not store the pointers returned by this persistently! When the
+// array grows and is reallocated the pointer will become invalid!.
+// TODO: This is probably even useless, in cases where something like this is
+// necessary, we should really be using linked lists.
+#define DYNAMIC_ARRAY_APPEND_GET(head_name, type, name)                     \
+{                                                                           \
+    size_t new_size = 0;                                                    \
+    if (0 == head_name ## _size) {                                          \
+        new_size = DYNAMIC_ARRAY_INITIAL_SIZE;                              \
+    } else if (head_name ## _size == head_name ## _len) {                   \
+        new_size = 2*(head_name ## _size);                                  \
+    }                                                                       \
+                                                                            \
+    DYNAMIC_ARRAY_REALLOC(head_name, new_size)                              \
+}                                                                           \
+type name = (head_name) + ((head_name ## _len)++);
 
 #define COMMON_H
 #endif
