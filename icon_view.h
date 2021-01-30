@@ -1,5 +1,5 @@
 /*
- * Copiright (C) 2018 Santiago León O.
+ * Copyright (C) 2018 Santiago León O.
  */
 
 struct icon_image_t {

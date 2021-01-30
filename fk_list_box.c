@@ -1,5 +1,5 @@
 /*
- * Copiright (C) 2018 Santiago León O.
+ * Copyright (C) 2018 Santiago León O.
  */
 
 // GtkListBox gets very slow as the number of row increases. Creation of the
