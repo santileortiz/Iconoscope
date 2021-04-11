@@ -122,7 +122,7 @@ char* consume_spaces (char *c)
 // original file string and are NOT null terminated. The following code shows
 // how to use them by printing back the input file:
 //
-//    char *theme_index = full_file_read (&pool, str_data(&path));
+//    char *theme_index = full_file_read (&pool, str_data(&path), NULL);
 //    char *c = theme_index;
 //    while (*c) {
 //        char *section_name;
@@ -487,15 +487,15 @@ void app_load_all_icon_themes (struct app_t *app)
     // new icon_theme_t struct for each one.
     int i;
     for (i=0; i<num_paths; i++) {
-        char *curr_search_path = path[i];
-        string_t path_str = str_new (curr_search_path);
-        if (str_last(&path_str) != '/') {
-            str_cat_c (&path_str, "/");
-        }
-        uint32_t path_len = str_len (&path_str);
-
+        char *curr_search_path = abs_path(path[i], NULL);
         struct stat st;
-        if (stat(curr_search_path, &st) != -1 || errno != ENOENT) {
+        if (curr_search_path != NULL && (stat(curr_search_path, &st) != -1 || errno != ENOENT)) {
+            string_t path_str = str_new (curr_search_path);
+            if (str_last(&path_str) != '/') {
+                str_cat_c (&path_str, "/");
+            }
+            uint32_t path_len = str_len (&path_str);
+
             DIR *d = opendir (curr_search_path);
             struct dirent *entry_info;
             while (read_dir (d, &entry_info)) {
@@ -510,7 +510,7 @@ void app_load_all_icon_themes (struct app_t *app)
                         theme->dir_name = pom_strdup (&theme->pool, entry_info->d_name);
 
                         str_cat_c (&path_str, "/index.theme");
-                        theme->index_file = full_file_read (&theme->pool, str_data(&path_str));
+                        theme->index_file = full_file_read (&theme->pool, str_data(&path_str), NULL);
                         set_theme_name(theme);
                     }
                     str_free (&theme_dir);
@@ -518,12 +518,13 @@ void app_load_all_icon_themes (struct app_t *app)
             }
 
             closedir (d);
+            str_free (&path_str);
 
         } else {
             // curr_search_path does not exist.
         }
 
-        str_free (&path_str);
+        free (curr_search_path);
     }
 
     // A theme can be spread across multiple search paths. Now that we know the
@@ -1480,9 +1481,14 @@ int main(int argc, char *argv[])
     g_object_ref_sink (app.all_icon_names_widget);
 
     bool folder_theme_used = false;
-    if (argc == 2 && dir_exists (argv[1])) {
-        folder_theme_used = app_set_folder_theme (&app, argv[1]);
-
+    if (argc == 2) {
+        char *argv1_abs = abs_path (argv[1], NULL);
+        if (argv1_abs != NULL && dir_exists (argv1_abs)) {
+            folder_theme_used = app_set_folder_theme (&app, argv[1]);
+        } else {
+            printf ("Could not set '%s' as folder theme.", argv[1]);
+        }
+        free (argv1_abs);
     }
 
     if (!folder_theme_used) {
