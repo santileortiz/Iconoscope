@@ -21,6 +21,15 @@
   </description>
 
   <releases>
+      <release version="0.9.8" date="2021-10-10">
+          <description>
+              <p>Initial submission for elementary OS 6</p>
+              <ul>
+                  <li>Flatpak packaging.</li>
+              </ul>
+          </description>
+      </release>
+
       <release version="0.9.7" date="2018-11-21">
           <description>
               <p>AppCenter updates were stuck at v0.1.4. Sorry about that!.</p>
@@ -109,6 +118,7 @@
       <value key="x-appcenter-color-primary">#ffed6b</value>
       <value key="x-appcenter-color-primary-text">#692b00</value>
       <value key="x-appcenter-suggested-price">10</value>
+      <value key="x-appcenter-stripe">pk_live_m1a0iCIlIYlM4MvC5WO0C8Ef</value>
   </custom>
 
   <content_rating type="oars-1.1">
