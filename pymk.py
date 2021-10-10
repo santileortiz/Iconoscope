@@ -42,6 +42,12 @@ def install ():
                 ex ('gtk-update-icon-cache-3.0 /usr/share/icons/hicolor/')
                 break;
 
+def package_deb ():
+    if ex("dpkg-checkbuilddeps", echo=False) == 0 and ex ("debuild -i -us -uc -b") == 0:
+        print(f"\nOutput files are located at: {ecma_bold(os.path.abspath('..'))}")
+    else:
+        print(ecma_red("\nerror:") + " Could not create deb package.")
+
 cfg.builtin_completions = ['--get_run_deps', '--get_build_deps']
 if __name__ == "__main__":
     # Everything above this line will be executed for each TAB press.

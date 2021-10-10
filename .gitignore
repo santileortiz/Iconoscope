@@ -6,3 +6,7 @@ tags
 *__pycache__*
 *.pyc
 mkpy/cache
+
+debian/.debhelper
+debian/files
+debian/com.github.santileortiz.iconoscope*
