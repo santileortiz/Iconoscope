@@ -119,6 +119,9 @@ def recommended_opt (s):
         res = opt_lst[0]
     return res
 
+def is_interactive():
+    return "i" in ex("echo $-", ret_stdout=True, echo=False)
+
 builtin_completions = []
 cli_completions = {}
 cli_bool_options = set()
@@ -131,7 +134,7 @@ def handle_tab_complete ():
     global cli_completions, builtin_completions
 
     # Check that the tab completion script is installed
-    if not check_completions ():
+    if not check_completions () and is_interactive():
         if get_cli_bool_opt('--install_completions'):
             print ('Installing tab completions...')
             ex ('cp mkpy/pymk.py {}'.format(get_completions_path()))

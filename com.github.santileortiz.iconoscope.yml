@@ -1,0 +1,20 @@
+app-id: com.github.santileortiz.iconoscope
+runtime: io.elementary.Platform
+runtime-version: '6'
+sdk: io.elementary.Sdk
+command: com.github.santileortiz.iconoscope
+
+finish-args:
+  - '--share=ipc'
+  - '--socket=fallback-x11'
+  - '--socket=wayland'
+
+modules:
+  - name: iconoscope
+    buildsystem: simple
+    build-commands:
+        - ./pymk.py iconoscope --mode release
+        - ./pymk.py install --destdir $FLATPAK_DEST/
+    sources:
+      - type: dir
+        path: .

@@ -5,13 +5,13 @@ assert sys.version_info >= (3,2)
 
 RDNN_NAME = 'com.github.santileortiz.iconoscope'
 installation_info = {
-    'bin/iconoscope': 'usr/bin/{RDNN_NAME}',
-    'data/iconoscope.desktop': 'usr/share/applications/{RDNN_NAME}.desktop',
-    'data/appdata.xml': 'usr/share/metainfo/{RDNN_NAME}.appdata.xml',
-    'data/128/iconoscope.svg': 'usr/share/icons/hicolor/128x128/apps/{RDNN_NAME}.svg',
-    'data/64/iconoscope.svg': 'usr/share/icons/hicolor/64x64/apps/{RDNN_NAME}.svg',
-    'data/48/iconoscope.svg': 'usr/share/icons/hicolor/48x48/apps/{RDNN_NAME}.svg',
-    'data/32/iconoscope.svg': 'usr/share/icons/hicolor/32x32/apps/{RDNN_NAME}.svg',
+    'bin/iconoscope': 'bin/{RDNN_NAME}',
+    'data/iconoscope.desktop': 'share/applications/{RDNN_NAME}.desktop',
+    'data/appdata.xml': 'share/metainfo/{RDNN_NAME}.appdata.xml',
+    'data/128/iconoscope.svg': 'share/icons/hicolor/128x128/apps/{RDNN_NAME}.svg',
+    'data/64/iconoscope.svg': 'share/icons/hicolor/64x64/apps/{RDNN_NAME}.svg',
+    'data/48/iconoscope.svg': 'share/icons/hicolor/48x48/apps/{RDNN_NAME}.svg',
+    'data/32/iconoscope.svg': 'share/icons/hicolor/32x32/apps/{RDNN_NAME}.svg',
     }
 
 GTK_FLAGS = ex ('pkg-config --cflags --libs gtk+-3.0', ret_stdout=True, echo=False)
@@ -34,6 +34,7 @@ def iconoscope ():
 
 def install ():
     dest_dir = get_cli_arg_opt ('--destdir')
+    print (f'Installing Iconoscope into: {dest_dir}')
     installed_files = install_files (installation_info, dest_dir)
 
     if dest_dir == None or dest_dir == '/':
@@ -41,6 +42,9 @@ def install ():
             if 'hicolor' in f:
                 ex ('gtk-update-icon-cache-3.0 /usr/share/icons/hicolor/')
                 break;
+
+def package_flatpak ():
+    ex ("flatpak-builder --force-clean flatpak-build com.github.santileortiz.iconoscope.yml")
 
 def package_deb ():
     if ex("dpkg-checkbuilddeps", echo=False) == 0 and ex ("debuild -i -us -uc -b") == 0:

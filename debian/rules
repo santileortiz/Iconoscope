@@ -13,5 +13,5 @@ override_dh_auto_build:
 	./pymk.py iconoscope --mode release
 
 override_dh_auto_install:
-	./pymk.py install --destdir ${CURDIR}/debian/${PACKAGENAME}/
+	./pymk.py install --destdir ${CURDIR}/debian/${PACKAGENAME}/usr/
 

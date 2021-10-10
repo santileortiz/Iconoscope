@@ -10,3 +10,6 @@ mkpy/cache
 debian/.debhelper
 debian/files
 debian/com.github.santileortiz.iconoscope*
+
+.flatpak-builder/
+flatpak-build/
